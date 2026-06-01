@@ -1,9 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -95,11 +93,6 @@ fun RouteMapCanvas(
         offset = Offset.Zero
     }
 
-    val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        scale = (scale * zoomChange).coerceIn(0.5f, 4.0f)
-        offset += offsetChange * scale
-    }
-
     // Prepare central bounding box points
     val mapPoints = remember(points, centerOn) {
         if (centerOn != null) {
@@ -158,11 +151,10 @@ fun RouteMapCanvas(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .transformable(state = transformState)
             .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    offset += dragAmount
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(0.5f, 4.0f)
+                    offset += pan
                 }
             }
     ) {

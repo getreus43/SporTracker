@@ -129,11 +129,8 @@ fun HomeScreen(
     var searchActive by remember { mutableStateOf(false) }
     var geocodeResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var isSearchingGeocode by remember { mutableStateOf(false) }
-    var searchJob by remember { mutableStateOf<Job?>(null) }
     var selectedLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var selectedLocationName by remember { mutableStateOf<String?>(null) }
-
-    val scope = rememberCoroutineScope()
 
     // Filter local routes matching query in search
     val filteredLocalRoutes = remember(searchQuery, routes) {
@@ -147,15 +144,11 @@ fun HomeScreen(
     // Debounced real locations search
     LaunchedEffect(searchQuery) {
         if (searchQuery.length >= 3) {
-            searchJob?.cancel()
-            searchJob = scope.launch {
-                delay(600)
-                isSearchingGeocode = true
-                geocodeResults = searchLocations(searchQuery)
-                isSearchingGeocode = false
-            }
+            delay(600)
+            isSearchingGeocode = true
+            geocodeResults = searchLocations(searchQuery)
+            isSearchingGeocode = false
         } else {
-            searchJob?.cancel()
             geocodeResults = emptyList()
         }
     }
