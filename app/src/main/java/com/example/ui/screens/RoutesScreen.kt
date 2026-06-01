@@ -384,6 +384,9 @@ fun RoutesScreen(
                     isAmoled = isAmoled,
                     mapType = mapType,
                     showTransportOverlay = overlayTransport,
+                    userLatitude = playbackState.userLatitude,
+                    userLongitude = playbackState.userLongitude,
+                    isOffRoute = playbackState.isOffRoute,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -544,6 +547,119 @@ fun RoutesScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                 contentPadding = PaddingValues(bottom = 16.dp)
                             ) {
+                                if (playbackState.isOffRoute) {
+                                    item {
+                                        Surface(
+                                            color = Color(0xFFFFF2E6),
+                                            border = BorderStroke(1.dp, Color(0xFFFF9500)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.Warning, contentDescription = "Desvío de Ruta", tint = Color(0xFFFF9500))
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text("FUERA DE RUTA", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFFFF9500), letterSpacing = 0.5.sp)
+                                                    Text("Desviado por ${playbackState.deviationDistanceMeters.toInt()}m de la ruta original. Por favor, regresa al camino indicado por la línea de retorno naranja.", fontSize = 12.sp, color = if (isAmoled) Color.White else Color.DarkGray)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    Surface(
+                                        color = if (isAmoled) Color(0xFF2C2C2E) else Color(0xFFF2F2F7),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.GpsFixed,
+                                                        contentDescription = null,
+                                                        tint = accentColor,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        "Simulador GPS interactivo",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = if (isAmoled) Color.White else Color.Black
+                                                    )
+                                                }
+                                                androidx.compose.material3.Switch(
+                                                    checked = playbackState.isSimulationMode,
+                                                    onCheckedChange = { viewModel.setSimulationMode(it) },
+                                                    modifier = Modifier.scale(0.8f)
+                                                )
+                                            }
+                                            
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            
+                                            val pointsCount = points.size
+                                            val progressPercent = if (pointsCount > 1) {
+                                                (playbackState.currentPointIndex.toFloat() / (pointsCount - 1).toFloat() * 100f).coerceIn(0f, 100f)
+                                            } else 0f
+
+                                            if (playbackState.isSimulationMode) {
+                                                Text(
+                                                    "Trayecto simulado (${progressPercent.toInt()}%):",
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray
+                                                )
+                                                
+                                                androidx.compose.material3.Slider(
+                                                    value = progressPercent,
+                                                    onValueChange = { viewModel.simulateProgressPercent(it) },
+                                                    valueRange = 0f..100f,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Button(
+                                                        onClick = { viewModel.simulateDeviation() },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9500)),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.weight(1f),
+                                                        contentPadding = PaddingValues(vertical = 4.dp, horizontal = 8.dp)
+                                                    ) {
+                                                        Text("Simular Desvío", fontSize = 11.sp, color = Color.White)
+                                                    }
+                                                    
+                                                    Button(
+                                                        onClick = { viewModel.simulateReturnToRoute() },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.weight(1f),
+                                                        contentPadding = PaddingValues(vertical = 4.dp, horizontal = 8.dp)
+                                                    ) {
+                                                        Text("Regresar al camino", fontSize = 11.sp, color = Color.White)
+                                                    }
+                                                }
+                                            } else {
+                                                Text(
+                                                    "📡 Leyendo datos de ubicación física real de Android en segundo plano para el personaje...",
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 item {
                                     // Live Telemetry Grid
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

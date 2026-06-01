@@ -81,6 +81,9 @@ fun RouteMapCanvas(
     mapType: String = "Carreteras Base",
     showTransportOverlay: Boolean = false,
     centerOn: Pair<Double, Double>? = null,
+    userLatitude: Double? = null,
+    userLongitude: Double? = null,
+    isOffRoute: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Zoom and Pan States
@@ -471,7 +474,9 @@ fun RouteMapCanvas(
                 )
 
                 // 4. Draw User Pointer (pulsing overlay)
-                val userPoint = if (currentPointIndex != null && currentPointIndex < points.size) {
+                val userPoint = if (userLatitude != null && userLongitude != null) {
+                    RoutePoint(userLatitude, userLongitude, 0.0, 0L)
+                } else if (currentPointIndex != null && currentPointIndex < points.size) {
                     points[currentPointIndex]
                 } else {
                     points.last()
@@ -481,7 +486,7 @@ fun RouteMapCanvas(
 
                 // Pulsing dot
                 drawCircle(
-                    color = routeColor.copy(alpha = 0.4f),
+                    color = if (isOffRoute) Color(0xFFFF3B30).copy(alpha = 0.4f) else routeColor.copy(alpha = 0.4f),
                     radius = 20f * scale,
                     center = userPos
                 )
@@ -491,10 +496,27 @@ fun RouteMapCanvas(
                     center = userPos
                 )
                 drawCircle(
-                    color = routeColor,
+                    color = if (isOffRoute) Color(0xFFFF3B30) else routeColor,
                     radius = 6f * scale,
                     center = userPos
                 )
+
+                // Draw redirect line if off route
+                if (isOffRoute) {
+                    val closestPt = points.minByOrNull { pt: RoutePoint ->
+                        com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
+                    }
+                    if (closestPt != null) {
+                        val routePos = getCanvasPos(closestPt.latitude, closestPt.longitude)
+                        drawLine(
+                            color = Color(0xFFFF9500), // Vibrant Orange redirection line
+                            start = userPos,
+                            end = routePos,
+                            strokeWidth = 5f * scale,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f * scale, 15f * scale), 0f)
+                        )
+                    }
+                }
             }
 
             // 5. Draw searched location marker pin if provided

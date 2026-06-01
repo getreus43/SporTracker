@@ -2,6 +2,7 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.speech.tts.TextToSpeech
+import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.RouteDatabase
@@ -41,7 +42,12 @@ data class PlaybackState(
     val showFinishedDialog: Boolean = false,
     val finishedPhotoFront: String? = null,
     val finishedPhotoBack: String? = null,
-    val activeSportMode: String = "Senderismo"
+    val activeSportMode: String = "Senderismo",
+    val userLatitude: Double? = null,
+    val userLongitude: Double? = null,
+    val isOffRoute: Boolean = false,
+    val deviationDistanceMeters: Double = 0.0,
+    val isSimulationMode: Boolean = true
 )
 
 data class RecordingState(
@@ -64,6 +70,19 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private val repository: RouteRepository
     private var tts: TextToSpeech? = null
     private var ttsEnabled = false
+
+    private var lastDeviationAnnouncementTime = 0L
+    private var lastAnnouncedMilestoneIndex = -1
+    
+    private var locationManager: android.location.LocationManager? = null
+    private val locationListener = object : android.location.LocationListener {
+        override fun onLocationChanged(location: android.location.Location) {
+            updateUserLocation(location.latitude, location.longitude)
+        }
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
 
     init {
         val database = RouteDatabase.getDatabase(application)
@@ -214,12 +233,20 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private var playbackJob: Job? = null
 
     fun startRoutePlayback(route: Route) = viewModelScope.launch {
+        lastDeviationAnnouncementTime = 0L
+        lastAnnouncedMilestoneIndex = -1
+
+        val firstPt = route.getPoints().firstOrNull()
+
         // Prepare to play - show circular countdown screen overlay
         _playbackState.value = PlaybackState(
             route = route,
             isPlaying = true,
             countdown = 3,
-            activeSportMode = route.sportType
+            activeSportMode = route.sportType,
+            userLatitude = firstPt?.latitude,
+            userLongitude = firstPt?.longitude,
+            isSimulationMode = true
         )
 
         // Count down 3, 2, 1
@@ -235,78 +262,212 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         _playbackState.value = _playbackState.value.copy(countdown = -1)
         speakText("Iniciando ruta: " + route.name + ". Sigue las indicaciones por voz.")
 
-        // Start path animation loop
+        if (!_playbackState.value.isSimulationMode) {
+            startGpsTracking()
+        }
+
+        // Start clock timer loop
         startPlaybackLoop()
     }
 
     private fun startPlaybackLoop() {
         playbackJob?.cancel()
         playbackJob = viewModelScope.launch {
-            val route = _playbackState.value.route ?: return@launch
-            val points = route.getPoints()
-            if (points.isEmpty()) return@launch
-
-            val isPausedFlow = { _playbackState.value.isPaused }
-            var idx = 0
             var seconds = 0L
-            var lastAnnouncedIdx = -1
-
-            while (idx < points.size) {
-                if (isPausedFlow()) {
+            while (_playbackState.value.isPlaying) {
+                if (_playbackState.value.isPaused) {
                     delay(1000)
                     continue
                 }
-
-                // Distance calculation
-                val subPoints = points.take(idx + 1)
-                var distanceCovered = 0.0
-                if (subPoints.size > 1) {
-                    for (i in 0 until subPoints.size - 1) {
-                        distanceCovered += GpxParser.calculateDistanceKm(subPoints[i], subPoints[i + 1])
-                    }
-                }
-
-                // Voice directions triggered based on segment index or key milestones
-                val progressPercent = (idx.toFloat() / points.size.toFloat()) * 100
-                var voiceText = ""
-                
-                if (idx == 0) {
-                    voiceText = "Continúa de frente en trescientos metros por el sendero principal."
-                } else if (idx == points.size / 4 && lastAnnouncedIdx != idx) {
-                    voiceText = "En doscientos metros, gira ligeramente a la derecha en dirección a la avenida principal."
-                    lastAnnouncedIdx = idx
-                } else if (idx == points.size / 2 && lastAnnouncedIdx != idx) {
-                    voiceText = "Has realizado la mitad de la ruta. El clima sigue agradable y despejado."
-                    lastAnnouncedIdx = idx
-                } else if (idx == points.size * 3 / 4 && lastAnnouncedIdx != idx) {
-                    voiceText = "Atención, se aproxima un punto de interés: mirador natural de la sierra. Excelente lugar para fotos."
-                    lastAnnouncedIdx = idx
-                } else if (idx == points.size - 3 && lastAnnouncedIdx != idx) {
-                    voiceText = "Bordeando la última curva. Estás llegando a tu destino final."
-                    lastAnnouncedIdx = idx
-                }
-
-                if (voiceText.isNotEmpty()) {
-                    _playbackState.value = _playbackState.value.copy(voiceInstruction = voiceText)
-                    speakText(voiceText)
-                }
-
-                _playbackState.value = _playbackState.value.copy(
-                    currentPointIndex = idx,
-                    elapsedSeconds = seconds,
-                    distanceCoveredKm = distanceCovered
-                )
-
-                delay(1500) // speed up playback to make it interactive and visual
-                seconds += 15
-                idx++
+                delay(1000)
+                seconds++
+                _playbackState.value = _playbackState.value.copy(elapsedSeconds = seconds)
             }
+        }
+    }
 
-            // Route Finished!
-            speakText("¡Felicidades! Has llegado a tu destino con éxito.")
+    fun setSimulationMode(enabled: Boolean) {
+        _playbackState.value = _playbackState.value.copy(isSimulationMode = enabled)
+        if (enabled) {
+            stopGpsTracking()
+        } else {
+            startGpsTracking()
+        }
+    }
+
+    fun simulateProgressPercent(percent: Float) {
+        val state = _playbackState.value
+        val route = state.route ?: return
+        val points = route.getPoints()
+        if (points.isEmpty()) return
+
+        val targetIdx = ((points.size - 1) * (percent / 100f)).toInt().coerceIn(points.indices)
+        val pt = points[targetIdx]
+        updateUserLocation(pt.latitude, pt.longitude)
+    }
+
+    fun simulateDeviation() {
+        val state = _playbackState.value
+        val route = state.route ?: return
+        val points = route.getPoints()
+        if (points.isEmpty()) return
+
+        val currentPoint = points[state.currentPointIndex.coerceIn(points.indices)]
+        // Simulate approx 100m deviation
+        val fakeDevLat = currentPoint.latitude + 0.0009
+        val fakeDevLon = currentPoint.longitude + 0.0009
+        updateUserLocation(fakeDevLat, fakeDevLon)
+    }
+
+    fun simulateReturnToRoute() {
+        val state = _playbackState.value
+        val route = state.route ?: return
+        val points = route.getPoints()
+        if (points.isEmpty()) return
+
+        val originalPt = points[state.currentPointIndex.coerceIn(points.indices)]
+        updateUserLocation(originalPt.latitude, originalPt.longitude)
+    }
+
+    fun startGpsTracking() {
+        val app = getApplication<Application>()
+        if (locationManager == null) {
+            locationManager = app.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        }
+        try {
+            val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                app,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                app,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            
+            if (hasFine || hasCoarse) {
+                locationManager?.requestLocationUpdates(
+                    android.location.LocationManager.GPS_PROVIDER,
+                    1000L,
+                    1f,
+                    locationListener
+                )
+                locationManager?.requestLocationUpdates(
+                    android.location.LocationManager.NETWORK_PROVIDER,
+                    1000L,
+                    1f,
+                    locationListener
+                )
+                val lastGps = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                val lastNet = locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                val best = lastGps ?: lastNet
+                if (best != null) {
+                    updateUserLocation(best.latitude, best.longitude)
+                }
+            }
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun stopGpsTracking() {
+        try {
+            locationManager?.removeUpdates(locationListener)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun updateUserLocation(lat: Double, lon: Double) {
+        val state = _playbackState.value
+        if (!state.isPlaying) return
+
+        val route = state.route ?: return
+        val points = route.getPoints()
+        if (points.isEmpty()) return
+
+        // Find closest point
+        var minDistance = Double.MAX_VALUE
+        var closestIdx = 0
+
+        for (i in points.indices) {
+            val dist = GpxParser.calculateDistanceKm(
+                RoutePoint(lat, lon, 0.0, 0L),
+                points[i]
+            )
+            if (dist < minDistance) {
+                minDistance = dist
+                closestIdx = i
+            }
+        }
+
+        val deviationMeters = minDistance * 1000.0
+        val isOffRoute = deviationMeters > 50.0 // 50 meters threshold
+
+        val subPoints = points.take(closestIdx + 1)
+        var distanceCovered = 0.0
+        if (subPoints.size > 1) {
+            for (i in 0 until subPoints.size - 1) {
+                distanceCovered += GpxParser.calculateDistanceKm(subPoints[i], subPoints[i + 1])
+            }
+        }
+
+        var voiceText = ""
+        val now = System.currentTimeMillis()
+        if (isOffRoute && now - lastDeviationAnnouncementTime > 15000) {
+            lastDeviationAnnouncementTime = now
+            voiceText = "Atención: te has desviado ${deviationMeters.toInt()} metros de la ruta. Por favor, reincorpórate al sendero original por la línea de retorno naranja."
+        } else if (!isOffRoute && state.isOffRoute) {
+            voiceText = "Ruta recuperada con éxito. Continúa por el sendero principal."
+        } else {
+            val pct = (closestIdx.toFloat() / points.size.toFloat()) * 100f
+            if (closestIdx != state.currentPointIndex) {
+                if (closestIdx == 0 && lastAnnouncedMilestoneIndex != 0) {
+                    voiceText = "Continúa de frente en trescientos metros por el sendero principal."
+                    lastAnnouncedMilestoneIndex = 0
+                } else if (pct >= 25f && pct < 50f && lastAnnouncedMilestoneIndex < 25) {
+                    voiceText = "En doscientos metros, gira ligeramente a la derecha en dirección a la avenida principal."
+                    lastAnnouncedMilestoneIndex = 25
+                } else if (pct >= 50f && pct < 75f && lastAnnouncedMilestoneIndex < 50) {
+                    voiceText = "Has realizado la mitad de la ruta. El clima sigue agradable y despejado."
+                    lastAnnouncedMilestoneIndex = 50
+                } else if (pct >= 75f && pct < 95f && lastAnnouncedMilestoneIndex < 75) {
+                    voiceText = "Atención, se aproxima un punto de interés: mirador natural de la sierra. Excelente lugar para fotos."
+                    lastAnnouncedMilestoneIndex = 75
+                } else if (closestIdx >= points.size - 3 && lastAnnouncedMilestoneIndex < 95) {
+                    voiceText = "Bordeando la última curva. Estás llegando a tu destino final."
+                    lastAnnouncedMilestoneIndex = 95
+                }
+            }
+        }
+
+        if (voiceText.isNotEmpty()) {
             _playbackState.value = _playbackState.value.copy(
-                showFinishedDialog = true,
-                voiceInstruction = "¡Has completado la ruta con éxito!"
+                voiceInstruction = voiceText,
+                isOffRoute = isOffRoute,
+                deviationDistanceMeters = deviationMeters,
+                currentPointIndex = closestIdx,
+                distanceCoveredKm = distanceCovered,
+                userLatitude = lat,
+                userLongitude = lon
+            )
+            speakText(voiceText)
+            
+            if (closestIdx == points.size - 1 && !isOffRoute) {
+                _playbackState.value = _playbackState.value.copy(
+                    showFinishedDialog = true,
+                    voiceInstruction = "¡Has completado la ruta con éxito!"
+                )
+            }
+        } else {
+            _playbackState.value = _playbackState.value.copy(
+                isOffRoute = isOffRoute,
+                deviationDistanceMeters = deviationMeters,
+                currentPointIndex = closestIdx,
+                distanceCoveredKm = distanceCovered,
+                userLatitude = lat,
+                userLongitude = lon
             )
         }
     }
@@ -325,6 +486,7 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
 
     fun stopPlayback() {
         playbackJob?.cancel()
+        stopGpsTracking()
         _playbackState.value = PlaybackState()
     }
 
