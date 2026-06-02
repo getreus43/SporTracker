@@ -39,6 +39,7 @@ fun RecordScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
+    val userLoc by viewModel.userCoordinates.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -192,6 +193,8 @@ fun RecordScreen(
                     isAmoled = isAmoled,
                     mapType = mapType,
                     showTransportOverlay = overlayTransport,
+                    userLatitude = userLoc?.first,
+                    userLongitude = userLoc?.second,
                     modifier = Modifier.fillMaxSize()
                 )
 

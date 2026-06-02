@@ -47,7 +47,7 @@ data class PlaybackState(
     val userLongitude: Double? = null,
     val isOffRoute: Boolean = false,
     val deviationDistanceMeters: Double = 0.0,
-    val isSimulationMode: Boolean = true
+    val isSimulationMode: Boolean = false
 )
 
 data class RecordingState(
@@ -74,10 +74,21 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private var lastDeviationAnnouncementTime = 0L
     private var lastAnnouncedMilestoneIndex = -1
     
+    // Live physical GPS coordinates feed
+    private val _userCoordinates = MutableStateFlow<Pair<Double, Double>?>(null)
+    val userCoordinates: StateFlow<Pair<Double, Double>?> = _userCoordinates.asStateFlow()
+    
     private var locationManager: android.location.LocationManager? = null
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: android.location.Location) {
-            updateUserLocation(location.latitude, location.longitude)
+            _userCoordinates.value = Pair(location.latitude, location.longitude)
+            
+            if (_playbackState.value.isPlaying && !_playbackState.value.isSimulationMode) {
+                updateUserLocation(location.latitude, location.longitude)
+            }
+            if (_recordingState.value.isRecording && !_recordingState.value.isPaused) {
+                handleRecordLocationUpdate(location)
+            }
         }
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         override fun onProviderEnabled(provider: String) {}
@@ -246,7 +257,7 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
             activeSportMode = route.sportType,
             userLatitude = firstPt?.latitude,
             userLongitude = firstPt?.longitude,
-            isSimulationMode = true
+            isSimulationMode = false
         )
 
         // Count down 3, 2, 1
@@ -506,6 +517,9 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private var recordingJob: Job? = null
 
     fun startRouteRecording(name: String, sportType: String, format: String, useExternalGps: Boolean) = viewModelScope.launch {
+        // Enforce GPS state tracking
+        startGpsTracking()
+
         _recordingState.value = RecordingState(
             isRecording = true,
             countdown = 3,
@@ -530,7 +544,7 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private fun startRecordingLoop() {
         recordingJob?.cancel()
         recordingJob = viewModelScope.launch {
-            // Simulated start coordinates (Madrid center)
+            // Simulated fallback start coordinates (Madrid center), only used if actual device coordinates do not arrive
             var currentLat = 40.4168
             var currentLon = -3.7038
             var currentAlt = 650.0
@@ -543,34 +557,74 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
                     continue
                 }
 
-                delay(2000) // Coordinate ticks
+                delay(2000) // Clock tick rate
                 seconds += 2
 
-                // Calculate next coordinate with slight random movement to simulate real walking
-                val angle = Math.random() * 2 * Math.PI
-                val step = 0.0003 // around 30 meters
-                currentLat += Math.sin(angle) * step
-                currentLon += Math.cos(angle) * step
-                currentAlt += (Math.random() - 0.5) * 4.0 // slight alt change
+                // Update clock timer state
+                _recordingState.value = _recordingState.value.copy(elapsedSeconds = seconds)
 
-                val newPoint = RoutePoint(currentLat, currentLon, currentAlt, System.currentTimeMillis())
-                val updatedPoints = _recordingState.value.points + newPoint
+                // Pure GPS fallback simulation logic:
+                // If there has been absolutely no GPS coordinates recorded yet (e.g. running on an emulator without physical GPS),
+                // simulate synthetic coordinates so that the app's recording flow still progresses perfectly.
+                if (_recordingState.value.points.isEmpty()) {
+                    val angle = Math.random() * 2 * Math.PI
+                    val step = 0.0003 // around 30 meters
+                    currentLat += Math.sin(angle) * step
+                    currentLon += Math.cos(angle) * step
+                    currentAlt += (Math.random() - 0.5) * 4.0
 
-                // recalculate distance
-                var distance = 0.0
-                if (updatedPoints.size > 1) {
-                    for (i in 0 until updatedPoints.size - 1) {
-                        distance += GpxParser.calculateDistanceKm(updatedPoints[i], updatedPoints[i + 1])
+                    val newPoint = RoutePoint(currentLat, currentLon, currentAlt, System.currentTimeMillis())
+                    val updatedPoints = _recordingState.value.points + newPoint
+
+                    var distance = 0.0
+                    if (updatedPoints.size > 1) {
+                        for (i in 0 until updatedPoints.size - 1) {
+                            distance += GpxParser.calculateDistanceKm(updatedPoints[i], updatedPoints[i + 1])
+                        }
                     }
-                }
 
-                _recordingState.value = _recordingState.value.copy(
-                    elapsedSeconds = seconds,
-                    points = updatedPoints,
-                    distanceKm = distance
-                )
+                    _recordingState.value = _recordingState.value.copy(
+                        points = updatedPoints,
+                        distanceKm = distance
+                    )
+                }
             }
         }
+    }
+
+    fun handleRecordLocationUpdate(location: android.location.Location) {
+        val state = _recordingState.value
+        if (!state.isRecording || state.isPaused) return
+
+        val newPoint = RoutePoint(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            altitude = location.altitude,
+            timestamp = System.currentTimeMillis()
+        )
+
+        // Prevent duplication of stationary points (under 1 meter jitter)
+        val lastPoint = state.points.lastOrNull()
+        if (lastPoint != null) {
+            val dKm = GpxParser.calculateDistanceKm(lastPoint, newPoint)
+            if (dKm < 0.001) { 
+                return
+            }
+        }
+
+        val updatedPoints = state.points + newPoint
+
+        var distance = 0.0
+        if (updatedPoints.size > 1) {
+            for (i in 0 until updatedPoints.size - 1) {
+                distance += GpxParser.calculateDistanceKm(updatedPoints[i], updatedPoints[i + 1])
+            }
+        }
+
+        _recordingState.value = state.copy(
+            points = updatedPoints,
+            distanceKm = distance
+        )
     }
 
     fun pauseRecording() {

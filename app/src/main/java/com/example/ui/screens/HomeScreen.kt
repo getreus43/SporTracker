@@ -102,6 +102,7 @@ fun HomeScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
+    val userLoc by viewModel.userCoordinates.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -161,15 +162,17 @@ fun HomeScreen(
             .fillMaxSize()
             .background(if (isAmoled) Color.Black else MaterialTheme.colorScheme.background)
     ) {
-        // 1. Full screen interactive map
+        // 1. Full screen interactive map with real physical user GPS coordinates blue pulsing pointer
         RouteMapCanvas(
-            points = if (selectedLocation != null) emptyList() else mapPoints,
-            waypoints = if (selectedLocation != null) emptyList() else mapWaypoints,
+            points = if (selectedLocation != null && selectedLocation != userLoc) emptyList() else mapPoints,
+            waypoints = if (selectedLocation != null && selectedLocation != userLoc) emptyList() else mapWaypoints,
             routeColor = accentColor,
             isAmoled = isAmoled,
             mapType = mapType,
             showTransportOverlay = overlayTransport,
             centerOn = selectedLocation,
+            userLatitude = userLoc?.first,
+            userLongitude = userLoc?.second,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -196,7 +199,15 @@ fun HomeScreen(
             }
 
             FloatingActionButton(
-                onClick = {},
+                onClick = {
+                    if (userLoc != null) {
+                        selectedLocation = userLoc
+                        selectedLocationName = "Tu Ubicación GPS"
+                    } else {
+                        // Request updates
+                        viewModel.startGpsTracking()
+                    }
+                },
                 containerColor = if (isAmoled) Color(0xFF1E1E1E) else Color.White,
                 contentColor = accentColor,
                 modifier = Modifier.size(44.dp)

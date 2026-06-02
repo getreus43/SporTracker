@@ -5,7 +5,7 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.MediaActionSound
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -21,12 +21,16 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlipCameraAndroid
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -53,9 +57,55 @@ fun DualCameraCapture(
     // Permission State
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
 
-    // Flash states
+    // Flash and Filter states
     var showFlashOverlay by remember { mutableStateOf(false) }
     var isFrontActiveFirst by remember { mutableStateOf(true) }
+    var flashMode by remember { mutableStateOf("Desactivado") } // "Desactivado", "Activado", "Automático"
+    
+    val filters = remember { listOf("Norma", "Vívida", "Monocromo", "Cálido", "Fresco") }
+    var currentFilterIdx by remember { mutableStateOf(0) }
+
+    // Handheld camera shake simulation
+    val infiniteTransition = rememberInfiniteTransition(label = "camera_shake")
+    val shakeX by infiniteTransition.animateFloat(
+        initialValue = -4f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shakeX"
+    )
+    val shakeY by infiniteTransition.animateFloat(
+        initialValue = -3f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shakeY"
+    )
+
+    // Face detection box position simulation
+    val faceTransition = rememberInfiniteTransition(label = "face_focus")
+    val faceX by faceTransition.animateFloat(
+        initialValue = 15f,
+        targetValue = 45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "faceX"
+    )
+    val faceY by faceTransition.animateFloat(
+        initialValue = 25f,
+        targetValue = 65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "faceY"
+    )
 
     // Mock pictures lists for the emulator
     val frontMockPhotos = remember {
@@ -79,6 +129,38 @@ fun DualCameraCapture(
     var selectedFrontIdx by remember { mutableStateOf((0..3).random()) }
     var selectedBackIdx by remember { mutableStateOf((0..3).random()) }
 
+    val resolvedColorFilter = remember(currentFilterIdx) {
+        when (filters[currentFilterIdx]) {
+            "Vívida" -> {
+                val matrix = ColorMatrix().apply { setToSaturation(1.4f) }
+                ColorFilter.colorMatrix(matrix)
+            }
+            "Monocromo" -> {
+                val matrix = ColorMatrix().apply { setToSaturation(0f) }
+                ColorFilter.colorMatrix(matrix)
+            }
+            "Cálido" -> {
+                val matrix = ColorMatrix(floatArrayOf(
+                    1.2f, 0f, 0f, 0f, 0f,
+                    0f, 1.0f, 0f, 0f, 0f,
+                    0f, 0f, 0.8f, 0f, 0f,
+                    0f, 0f, 0f, 1.0f, 0f
+                ))
+                ColorFilter.colorMatrix(matrix)
+            }
+            "Fresco" -> {
+                val matrix = ColorMatrix(floatArrayOf(
+                    0.8f, 0f, 0f, 0f, 0f,
+                    0f, 1.0f, 0f, 0f, 0f,
+                    0f, 0f, 1.2f, 0f, 0f,
+                    0f, 0f, 0f, 1.0f, 0f
+                ))
+                ColorFilter.colorMatrix(matrix)
+            }
+            else -> null // Norma
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
             cameraPermissionState.launchPermissionRequest()
@@ -92,14 +174,63 @@ fun DualCameraCapture(
     ) {
         if (cameraPermissionState.status.isGranted) {
             // Main Camera Feed (Back Camera)
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = shakeX
+                        translationY = shakeY
+                        scaleX = 1.05f
+                        scaleY = 1.05f
+                    }
+            ) {
                 Image(
                     painter = rememberAsyncImagePainter(backMockPhotos[selectedBackIdx]),
                     contentDescription = "Cámara Trasera - Paisaje",
                     contentScale = ContentScale.Crop,
+                    colorFilter = resolvedColorFilter,
                     modifier = Modifier.fillMaxSize()
                 )
                 
+                // Live Filter and Flash Indicator
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 110.dp, start = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (filters[currentFilterIdx] != "Norma") {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                "FILTRO: ${filters[currentFilterIdx].uppercase()}",
+                                color = Color(0xFFFF9500),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            "FLASH: ${flashMode.uppercase()}",
+                            color = when (flashMode) {
+                                "Activado" -> Color(0xFFFFD600)
+                                "Automático" -> Color(0xFF00E5FF)
+                                else -> Color.LightGray
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
                 // Dark bottom overlay
                 Box(
                     modifier = Modifier
@@ -170,14 +301,36 @@ fun DualCameraCapture(
                         .clip(RoundedCornerShape(12.dp))
                         .border(2.dp, Color.White, RoundedCornerShape(12.dp))
                         .background(Color.DarkGray)
+                        .graphicsLayer {
+                            // Subtle independent shake for the selfie preview
+                            translationX = shakeY * 0.4f
+                            translationY = shakeX * 0.4f
+                        }
                 ) {
                     Image(
                         painter = rememberAsyncImagePainter(frontMockPhotos[selectedFrontIdx]),
                         contentDescription = "Cámara Delantera - Selfie",
                         contentScale = ContentScale.Crop,
+                        colorFilter = resolvedColorFilter,
                         modifier = Modifier.fillMaxSize()
                     )
                     
+                    // Moving green focus target box
+                    Box(
+                        modifier = Modifier
+                            .offset(x = faceX.dp, y = faceY.dp)
+                            .size(38.dp)
+                            .border(1.dp, Color(0xFF00FF00), RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "[ ]",
+                            color = Color(0xFF00FF00),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -210,9 +363,22 @@ fun DualCameraCapture(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Flash Icon
-                        IconButton(onClick = { }) {
-                            Icon(Icons.Filled.FlashOn, contentDescription = "Flash", tint = Color.LightGray)
+                        // Flash Icon (Functional)
+                        IconButton(
+                            onClick = {
+                                flashMode = when (flashMode) {
+                                    "Desactivado" -> "Activado"
+                                    "Activado" -> "Automático"
+                                    else -> "Desactivado"
+                                }
+                            }
+                        ) {
+                            val tintColor = when (flashMode) {
+                                "Activado" -> Color(0xFFFFD600)
+                                "Automático" -> Color(0xFF00E5FF)
+                                else -> Color.LightGray
+                            }
+                            Icon(Icons.Filled.FlashOn, contentDescription = "Flash: $flashMode", tint = tintColor)
                         }
 
                         // Mechanical Shutter Button
@@ -231,9 +397,22 @@ fun DualCameraCapture(
                                         } catch (e: Exception) {}
                                         
                                         // Flash Trigger Animation
-                                        showFlashOverlay = true
-                                        delay(150)
-                                        showFlashOverlay = false
+                                        val needFlashAnim = (flashMode == "Activado") || (flashMode == "Automático" && Math.random() > 0.4)
+                                        
+                                        if (needFlashAnim) {
+                                            showFlashOverlay = true
+                                            delay(150)
+                                            showFlashOverlay = false
+                                            delay(80)
+                                            showFlashOverlay = true
+                                            delay(100)
+                                            showFlashOverlay = false
+                                        } else {
+                                            // Normal shutter overlay trigger
+                                            showFlashOverlay = true
+                                            delay(120)
+                                            showFlashOverlay = false
+                                        }
                                         delay(100)
 
                                         // Return paths to fake photos
@@ -252,9 +431,17 @@ fun DualCameraCapture(
                             )
                         }
 
-                        // GPS Compass Placeholder
-                        IconButton(onClick = {}) {
-                            Icon(Icons.Filled.Map, contentDescription = "Ubicación", tint = Color.LightGray)
+                        // Filter Presets Selector Tool (Palette icon)
+                        IconButton(
+                            onClick = {
+                                currentFilterIdx = (currentFilterIdx + 1) % filters.size
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette, 
+                                contentDescription = "Filtros de Color", 
+                                tint = if (currentFilterIdx == 0) Color.LightGray else Color(0xFFFF9500)
+                            )
                         }
                     }
                 }
