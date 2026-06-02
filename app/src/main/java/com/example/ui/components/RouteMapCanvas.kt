@@ -51,6 +51,18 @@ private fun latToTileY(lat: Double, z: Int): Int {
     return y.coerceIn(0, totalTiles - 1)
 }
 
+private data class ProjectedBounds(
+    val minX: Double,
+    val maxX: Double,
+    val minY: Double,
+    val maxY: Double
+)
+
+private fun projectedYToLat(yMerc: Double): Double {
+    val n = PI - 2.0 * PI * yMerc
+    return 180.0 / PI * atan(sinh(n))
+}
+
 private fun getTileUrl(x: Int, y: Int, z: Int, type: String, isAmoled: Boolean): String {
     val subdomains = listOf("a", "b", "c")
     val sub = subdomains[abs(x + y) % subdomains.size]
@@ -151,18 +163,50 @@ fun RouteMapCanvas(
     val density = LocalDensity.current
     val context = LocalContext.current
 
+    val bounds = remember(mapPoints) {
+        val minX = mapPoints.minOf { (it.longitude + 180.0) / 360.0 }
+        val maxX = mapPoints.maxOf { (it.longitude + 180.0) / 360.0 }
+        
+        val minY = mapPoints.minOf { 
+            val latRad = Math.toRadians(it.latitude.coerceIn(-85.05112878, 85.05112878))
+            (1.0 - (ln(tan(latRad) + 1.0 / cos(latRad)) / PI)) / 2.0
+        }
+        val maxY = mapPoints.maxOf { 
+            val latRad = Math.toRadians(it.latitude.coerceIn(-85.05112878, 85.05112878))
+            (1.0 - (ln(tan(latRad) + 1.0 / cos(latRad)) / PI)) / 2.0
+        }
+        ProjectedBounds(minX, maxX, minY, maxY)
+    }
+
+    val xSpan = remember(bounds) {
+        val span = bounds.maxX - bounds.minX
+        if (span == 0.0) 0.0001 else span
+    }
+    
+    val ySpan = remember(bounds) {
+        val span = bounds.maxY - bounds.minY
+        if (span == 0.0) 0.0001 else span
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(0.5f, 4.0f)
+                    scale = (scale * zoom).coerceIn(0.15f, 60.0f)
                     offset += pan
                 }
             }
     ) {
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
+
+        val baseScale = remember(bounds, xSpan, ySpan, widthPx, heightPx) {
+            val padding = 150f
+            val mapWidth = widthPx - (padding * 2)
+            val mapHeight = heightPx - (padding * 2)
+            if (mapWidth <= 0 || mapHeight <= 0) 1f else min(mapWidth / xSpan, mapHeight / ySpan).toFloat()
+        }
 
         // Dynamic zoom level calculation based on pinch zoom gestures
         val currentZ = remember(zoomLevel, scale) {
@@ -181,20 +225,16 @@ fun RouteMapCanvas(
             val mapWidth = widthPx - (padding * 2)
             val mapHeight = heightPx - (padding * 2)
             
-            // Avoid division by zero
-            val dWidth = if (mapWidth <= 0f) 1f else mapWidth
-            val dHeight = if (mapHeight <= 0f) 1f else mapHeight
+            val x = ((px - padding - (mapWidth - xSpan * baseScale) / 2) / baseScale) + bounds.minX
+            val y = ((py - padding - (mapHeight - ySpan * baseScale) / 2) / baseScale) + bounds.minY
             
-            val normX = ((px - padding) / dWidth).toDouble()
-            val normY = ((py - padding) / dHeight).toDouble()
-            
-            val longitude = normX * lonSpan + minLon
-            val latitude = (1.0 - normY) * latSpan + minLat
+            val longitude = x * 360.0 - 180.0
+            val latitude = projectedYToLat(y)
             return Pair(latitude, longitude)
         }
 
         // Calculate visible geo bounding box of the screen dynamically!
-        val visibleGeoBounds = remember(minLat, maxLat, minLon, maxLon, scale, offset, widthPx, heightPx) {
+        val visibleGeoBounds = remember(bounds, xSpan, ySpan, baseScale, scale, offset, widthPx, heightPx) {
             if (widthPx <= 0f || heightPx <= 0f) {
                 Triple(minLat, maxLat, Pair(minLon, maxLon))
             } else {
@@ -280,24 +320,22 @@ fun RouteMapCanvas(
 
             // Coordinate to pixel projection function
             fun getCanvasPos(latitude: Double, longitude: Double): Offset {
-                // Center-relative mapping
-                val normX = (longitude - minLon) / lonSpan // 0.0 to 1.0
-                val normY = 1.0 - ((latitude - minLat) / latSpan) // 0.0 to 1.0 (flip Y)
+                val x = (longitude + 180.0) / 360.0
+                val latRad = Math.toRadians(latitude.coerceIn(-85.05112878, 85.05112878))
+                val y = (1.0 - (ln(tan(latRad) + 1.0 / cos(latRad)) / PI)) / 2.0
 
-                // Rescale to map bounds within padding
                 val padding = 150f
                 val mapWidth = width - (padding * 2)
                 val mapHeight = height - (padding * 2)
 
-                val px = padding + (normX * mapWidth)
-                val py = padding + (normY * mapHeight)
-                
-                // apply zoom scale and pan offsets
+                val mappedX = padding + (x - bounds.minX) * baseScale + (mapWidth - xSpan * baseScale) / 2
+                val mappedY = padding + (y - bounds.minY) * baseScale + (mapHeight - ySpan * baseScale) / 2
+
                 val centerX = width / 2f
                 val centerY = height / 2f
-                
-                val scaledX = (px - centerX) * scale + centerX + offset.x
-                val scaledY = (py - centerY) * scale + centerY + offset.y
+
+                val scaledX = (mappedX - centerX) * scale + centerX + offset.x
+                val scaledY = (mappedY - centerY) * scale + centerY + offset.y
                 return Offset(scaledX.toFloat(), scaledY.toFloat())
             }
 

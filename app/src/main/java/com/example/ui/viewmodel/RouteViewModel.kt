@@ -78,16 +78,57 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private val _userCoordinates = MutableStateFlow<Pair<Double, Double>?>(null)
     val userCoordinates: StateFlow<Pair<Double, Double>?> = _userCoordinates.asStateFlow()
     
+    private fun isLocationReliable(location: android.location.Location, lastPoint: RoutePoint?): Boolean {
+        // 1. Reject very inaccurate points (e.g. > 35m accuracy is raw tower or bad lock)
+        if (location.hasAccuracy() && location.accuracy > 35f) {
+            return false
+        }
+        
+        // 2. Treat network provider points with extreme suspicion (must be highly accurate if used at all)
+        if (location.provider == android.location.LocationManager.NETWORK_PROVIDER) {
+            if (!location.hasAccuracy() || location.accuracy > 30f) {
+                return false
+            }
+        }
+
+        // 3. Prevent teleport jumps: check physical speed limit
+        if (lastPoint != null) {
+            val distKm = GpxParser.calculateDistanceKm(
+                lastPoint,
+                RoutePoint(location.latitude, location.longitude, location.altitude, System.currentTimeMillis())
+            )
+            val elapsedSeconds = kotlin.math.max(1L, (System.currentTimeMillis() - lastPoint.timestamp) / 1000L)
+            val speedKmh = (distKm / elapsedSeconds) * 3600.0
+            
+            // Reject if speed exceeds 130 km/h (unrealistic for trail/sport walking/running)
+            if (speedKmh > 130.0 && distKm > 0.1) {
+                return false
+            }
+        }
+
+        return true
+    }
+
     private var locationManager: android.location.LocationManager? = null
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: android.location.Location) {
+            if (location.hasAccuracy() && location.accuracy > 45f) {
+                return
+            }
             _userCoordinates.value = Pair(location.latitude, location.longitude)
             
             if (_playbackState.value.isPlaying && !_playbackState.value.isSimulationMode) {
-                updateUserLocation(location.latitude, location.longitude)
+                val state = _playbackState.value
+                val lastPlaybackPoint = state.route?.getPoints()?.getOrNull(state.currentPointIndex)
+                if (isLocationReliable(location, lastPlaybackPoint)) {
+                    updateUserLocation(location.latitude, location.longitude)
+                }
             }
             if (_recordingState.value.isRecording && !_recordingState.value.isPaused) {
-                handleRecordLocationUpdate(location)
+                val lastRecordPoint = _recordingState.value.points.lastOrNull()
+                if (isLocationReliable(location, lastRecordPoint)) {
+                    handleRecordLocationUpdate(location)
+                }
             }
         }
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -371,7 +412,8 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
                 val lastGps = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
                 val lastNet = locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
                 val best = lastGps ?: lastNet
-                if (best != null) {
+                if (best != null && isLocationReliable(best, null)) {
+                    _userCoordinates.value = Pair(best.latitude, best.longitude)
                     updateUserLocation(best.latitude, best.longitude)
                 }
             }
