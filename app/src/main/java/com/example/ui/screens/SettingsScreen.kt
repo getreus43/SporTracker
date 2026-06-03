@@ -40,6 +40,7 @@ fun SettingsScreen(
     val saveToWeb by viewModel.saveToWeb.collectAsState()
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
+    val autoSaveToGallery by viewModel.autoSaveToGallery.collectAsState()
 
     val accentColor = remember(currentAccentHex) { Color(android.graphics.Color.parseColor(currentAccentHex)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -166,6 +167,33 @@ fun SettingsScreen(
                         Switch(
                             checked = saveToWeb,
                             onCheckedChange = { viewModel.setSaveToWeb(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = accentColor, checkedTrackColor = accentColor.copy(alpha = 0.5f))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Guardar fotos duales en la galería",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = if (isAmoled) Color.White else Color.Black
+                            )
+                            Text(
+                                "Almacena automáticamente las fotos de tus POIs en la galería pública",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Switch(
+                            checked = autoSaveToGallery,
+                            onCheckedChange = { viewModel.setAutoSaveToGallery(it) },
                             colors = SwitchDefaults.colors(checkedThumbColor = accentColor, checkedTrackColor = accentColor.copy(alpha = 0.5f))
                         )
                     }

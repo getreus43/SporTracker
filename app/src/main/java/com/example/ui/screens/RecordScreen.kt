@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -34,6 +35,7 @@ fun RecordScreen(
     viewModel: RouteViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val state by viewModel.recordingState.collectAsState()
     val rawAccentColor by viewModel.accentColor.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
@@ -41,6 +43,7 @@ fun RecordScreen(
     val overlayTransport by viewModel.overlayTransport.collectAsState()
     val userLoc by viewModel.userCoordinates.collectAsState()
     val userBearing by viewModel.userBearing.collectAsState()
+    val autoSaveToGallery by viewModel.autoSaveToGallery.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -658,6 +661,11 @@ fun RecordScreen(
                     capturedFrontWpPhoto = front
                     capturedBackWpPhoto = back
                     showDualCameraForWp = false
+                    if (autoSaveToGallery) {
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
+                        Toast.makeText(context, "¡Fotos guardadas en la galería!", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onClose = { showDualCameraForWp = false }
             )

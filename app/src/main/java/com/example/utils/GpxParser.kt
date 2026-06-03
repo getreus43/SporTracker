@@ -77,6 +77,66 @@ object GpxParser {
     }
 
     /**
+     * Converts a Route object to a standard KML 2.2 string.
+     */
+    fun routeToKml(route: Route): String {
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n")
+        sb.append("  <Document>\n")
+        sb.append("    <name>${escapeXml(route.name)}</name>\n")
+        if (route.description.isNotEmpty()) {
+            sb.append("    <description>${escapeXml(route.description)}</description>\n")
+        }
+
+        // Waypoints (Points of Interest)
+        val waypoints = route.getPointsOfInterest()
+        for (wp in waypoints) {
+            sb.append("    <Placemark>\n")
+            sb.append("      <name>${escapeXml(wp.name)}</name>\n")
+            val ptDescStr = buildString {
+                if (wp.description.isNotEmpty()) {
+                    append(wp.description)
+                }
+                if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
+                    if (isNotEmpty()) append("\n")
+                    append("Fotos duales:\n")
+                    if (wp.frontPhotoPath != null) append("- Delantera: ${wp.frontPhotoPath}\n")
+                    if (wp.backPhotoPath != null) append("- Trasera: ${wp.backPhotoPath}\n")
+                }
+            }
+            if (ptDescStr.isNotEmpty()) {
+                sb.append("      <description>${escapeXml(ptDescStr)}</description>\n")
+            }
+            sb.append("      <Point>\n")
+            sb.append("        <coordinates>${wp.longitude},${wp.latitude},0</coordinates>\n")
+            sb.append("      </Point>\n")
+            sb.append("    </Placemark>\n")
+        }
+
+        // Track Path as LineString
+        val points = route.getPoints()
+        if (points.isNotEmpty()) {
+            sb.append("    <Placemark>\n")
+            sb.append("      <name>${escapeXml(route.name)} (Trayecto)</name>\n")
+            sb.append("      <LineString>\n")
+            sb.append("        <extrude>1</extrude>\n")
+            sb.append("        <tessellate>1</tessellate>\n")
+            sb.append("        <coordinates>\n")
+            for (pt in points) {
+                sb.append("          ${pt.longitude},${pt.latitude},${pt.altitude}\n")
+            }
+            sb.append("        </coordinates>\n")
+            sb.append("      </LineString>\n")
+            sb.append("    </Placemark>\n")
+        }
+
+        sb.append("  </Document>\n")
+        sb.append("</kml>")
+        return sb.toString()
+    }
+
+    /**
      * Parses a GPX 1.1 XML string into a Route object.
      */
     fun gpxToRoute(gpxString: String, sportType: String = "Senderismo"): Route {

@@ -257,6 +257,12 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         initialValue = false
     )
 
+    val autoSaveToGallery: StateFlow<Boolean> = repository.autoSaveToGallery.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+
     // Route Detail view on Bottom sheet or Detail screen
     private val _selectedRouteId = MutableStateFlow<Long?>(null)
     val selectedRouteId: StateFlow<Long?> = _selectedRouteId.asStateFlow()
@@ -294,6 +300,10 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         repository.setSaveToWeb(save)
     }
 
+    fun setAutoSaveToGallery(enabled: Boolean) = viewModelScope.launch {
+        repository.setAutoSaveToGallery(enabled)
+    }
+
     fun deleteRoute(route: Route) = viewModelScope.launch {
         repository.deleteRoute(route)
         if (_selectedRouteId.value == route.id) {
@@ -314,6 +324,10 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
 
     fun exportRouteToGpx(route: Route): String {
         return GpxParser.routeToGpx(route)
+    }
+
+    fun exportRouteToKml(route: Route): String {
+        return GpxParser.routeToKml(route)
     }
 
     // ==========================================

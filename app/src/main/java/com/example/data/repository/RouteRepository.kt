@@ -31,6 +31,7 @@ class RouteRepository(
     private val prefSaveToWeb = booleanPreferencesKey("save_to_web")
     private val prefMapType = stringPreferencesKey("map_type") // "Carreteras Base", "Topográfico", "Satelital"
     private val prefOverlayTransport = booleanPreferencesKey("overlay_transport") // Overlay layer toggle
+    private val prefAutoSaveToGallery = booleanPreferencesKey("auto_save_to_gallery")
 
     // Preferences Flows
     val accentColor: Flow<String> = context.dataStore.data.map { it[prefAccentColor] ?: "#007AFF" } // Standard iOS blue
@@ -41,6 +42,7 @@ class RouteRepository(
     val saveToWeb: Flow<Boolean> = context.dataStore.data.map { it[prefSaveToWeb] ?: true }
     val mapType: Flow<String> = context.dataStore.data.map { it[prefMapType] ?: "Carreteras Base" }
     val overlayTransport: Flow<Boolean> = context.dataStore.data.map { it[prefOverlayTransport] ?: false }
+    val autoSaveToGallery: Flow<Boolean> = context.dataStore.data.map { it[prefAutoSaveToGallery] ?: false }
 
     // Settings modifiers
     suspend fun setAccentColor(colorHex: String) {
@@ -82,6 +84,10 @@ class RouteRepository(
 
     suspend fun setSaveToWeb(save: Boolean) {
         context.dataStore.edit { it[prefSaveToWeb] = save }
+    }
+
+    suspend fun setAutoSaveToGallery(enabled: Boolean) {
+        context.dataStore.edit { it[prefAutoSaveToGallery] = enabled }
     }
 
     // Database actions

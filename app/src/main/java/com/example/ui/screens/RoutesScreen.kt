@@ -40,6 +40,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.example.ui.components.RouteMapCanvas
 import com.example.ui.viewmodel.RouteViewModel
+import androidx.compose.foundation.Image
+import coil.compose.rememberAsyncImagePainter
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -60,6 +63,7 @@ fun RoutesScreen(
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
     val userBearing by viewModel.userBearing.collectAsState()
+    val autoSaveToGallery by viewModel.autoSaveToGallery.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -992,51 +996,109 @@ fun RoutesScreen(
             )
         }
 
-        // GPX Export Inspector dialog
+        // GPX / KML Export Inspector dialog
         if (showExportDialog != null) {
             val routeToExport = showExportDialog!!
-            val xmlText = remember(routeToExport) { viewModel.exportRouteToGpx(routeToExport) }
+            var exportFormat by remember { mutableStateOf("GPX") } // "GPX" or "KML"
+            val textContent = remember(routeToExport, exportFormat) {
+                if (exportFormat == "GPX") {
+                    viewModel.exportRouteToGpx(routeToExport)
+                } else {
+                    viewModel.exportRouteToKml(routeToExport)
+                }
+            }
 
             AlertDialog(
                 onDismissRequest = { showExportDialog = null },
-                title = { Text("Exportar GPX: ${routeToExport.name}", fontWeight = FontWeight.Bold) },
+                title = { Text("Exportar: ${routeToExport.name}", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            "Aquí tienes el código XML estándar inter-operable para exportar a cualquier dispositivo Garmin, Polar o Strava.",
-                            fontSize = 12.sp,
+                            "Selecciona el formato de exportación preferido para GPS, Google Earth u otras aplicaciones de senderismo.",
+                            fontSize = 11.sp,
                             color = Color.Gray
                         )
 
+                        // Format Selector Buttons
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            listOf("GPX", "KML").forEach { fmt ->
+                                val isSelected = exportFormat == fmt
+                                Button(
+                                    onClick = { exportFormat = fmt },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSelected) accentColor else accentColor.copy(alpha = 0.12f),
+                                        contentColor = if (isSelected) Color.White else accentColor
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(fmt, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
                         OutlinedTextField(
-                            value = xmlText,
+                            value = textContent,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Código de Ruta GPX") },
+                            label = { Text("Código de Ruta ($exportFormat)") },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(160.dp)
+                                .height(120.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         )
                         
+                        // Download/Save File Button
                         Button(
+                            onClick = {
+                                val mimeType = if (exportFormat == "GPX") "application/gpx+xml" else "application/vnd.google-earth.kml+xml"
+                                val extension = if (exportFormat == "GPX") ".gpx" else ".kml"
+                                val filename = "${routeToExport.name.replace(" ", "_")}$extension"
+                                val savedUri = com.example.utils.FileExporter.saveTextFileToDownloads(
+                                    context = context,
+                                    fileName = filename,
+                                    fileContent = textContent,
+                                    mimeType = mimeType
+                                )
+                                if (savedUri != null) {
+                                    Toast.makeText(context, "¡Descargado en Descargas/RutasGPX/$filename!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "No se pudo guardar el archivo.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Guardar en Descargas", fontWeight = FontWeight.Bold)
+                        }
+
+                        // Share Button
+                        OutlinedButton(
                             onClick = {
                                 val sendIntent: Intent = Intent().apply {
                                     action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, xmlText)
+                                    putExtra(Intent.EXTRA_TEXT, textContent)
                                     type = "text/plain"
                                 }
-                                val shareIntent = Intent.createChooser(sendIntent, "Exportar Código GPX")
+                                val shareIntent = Intent.createChooser(sendIntent, "Exportar Código $exportFormat")
                                 context.startActivity(shareIntent)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, accentColor)
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = null)
+                            Icon(Icons.Default.Share, contentDescription = null, tint = accentColor)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Compartir archivo XML")
+                            Text("Compartir código", color = accentColor, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 },
@@ -1045,7 +1107,7 @@ fun RoutesScreen(
                         onClick = { showExportDialog = null },
                         colors = ButtonDefaults.buttonColors(containerColor = accentColor)
                     ) {
-                        Text("Entendido", color = Color.White)
+                        Text("Cerrar", color = Color.White)
                     }
                 }
             )
@@ -1083,7 +1145,13 @@ fun RoutesScreen(
             DualCameraCapture(
                 onCaptured = { front, back ->
                     activeDualCameraForPlay = false
-                    Toast.makeText(context, "¡Captura dual guardada en la ruta!", Toast.LENGTH_SHORT).show()
+                    if (autoSaveToGallery) {
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
+                        Toast.makeText(context, "¡Captura dual guardada en la ruta y galería!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "¡Captura dual guardada en la ruta!", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onClose = { activeDualCameraForPlay = false }
             )
@@ -1095,6 +1163,11 @@ fun RoutesScreen(
                 onCaptured = { front, back ->
                     viewModel.setPlaybackFinishedPhotos(front, back)
                     isCelebCameraActive = false
+                    if (autoSaveToGallery) {
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
+                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
+                        Toast.makeText(context, "¡Fotos de celebración guardadas en la galería!", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onClose = { isCelebCameraActive = false }
             )
@@ -1111,6 +1184,7 @@ fun RouteManagementCard(
     onExportClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    val context = LocalContext.current
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
@@ -1240,6 +1314,192 @@ fun RouteManagementCard(
                     Icon(Icons.Default.Cloud, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(route.weatherTrafficInfo, fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+
+            var isExpanded by remember { mutableStateOf(false) }
+            val waypoints = remember(route) { route.getPointsOfInterest() }
+
+            if (waypoints.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Surface(
+                    onClick = { isExpanded = !isExpanded },
+                    color = if (isAmoled) Color(0xFF2C2C2E) else Color(0xFFF2F2F7),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Puntos de Interés y Fotos (${waypoints.size})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAmoled) Color.White else Color.Black
+                            )
+                        }
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isExpanded) "Colapsar" else "Expandir",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                if (isExpanded) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+                    ) {
+                        waypoints.forEach { wp ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isAmoled) Color(0xFF252526) else Color(0xFFF2F2F7).copy(alpha = 0.5f)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.PinDrop, contentDescription = null, tint = Color(0xFFFF9500), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            wp.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = if (isAmoled) Color.White else Color.Black
+                                        )
+                                    }
+                                    if (wp.description.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            wp.description,
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+
+                                    if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (wp.frontPhotoPath != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(120.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.DarkGray)
+                                                ) {
+                                                    val frontFile = File(wp.frontPhotoPath)
+                                                    if (frontFile.exists() && !wp.frontPhotoPath.startsWith("mock_")) {
+                                                        Image(
+                                                            painter = rememberAsyncImagePainter(frontFile),
+                                                            contentDescription = "Foto Delantera del POI",
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(accentColor.copy(alpha = 0.15f)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = accentColor, modifier = Modifier.size(24.dp))
+                                                                Spacer(modifier = Modifier.height(4.dp))
+                                                                Text("Vista Delantera", fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+
+                                                    IconButton(
+                                                        onClick = {
+                                                            val savedUri = com.example.utils.GallerySaver.saveImageToPublicGallery(context, wp.frontPhotoPath)
+                                                            if (savedUri != null) {
+                                                                Toast.makeText(context, "¡Foto frontal guardada en la galería pública!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "No se pudo guardar la foto.", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        },
+                                                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .padding(4.dp)
+                                                            .size(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Download, contentDescription = "Descargar frontal", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+
+                                            if (wp.backPhotoPath != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(120.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.DarkGray)
+                                                ) {
+                                                    val backFile = File(wp.backPhotoPath)
+                                                    if (backFile.exists() && !wp.backPhotoPath.startsWith("mock_")) {
+                                                        Image(
+                                                            painter = rememberAsyncImagePainter(backFile),
+                                                            contentDescription = "Foto Trasera del POI",
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(accentColor.copy(alpha = 0.15f)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                Icon(Icons.Default.Portrait, contentDescription = null, tint = accentColor, modifier = Modifier.size(24.dp))
+                                                                Spacer(modifier = Modifier.height(4.dp))
+                                                                Text("Selfie / Trasera", fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+
+                                                    IconButton(
+                                                        onClick = {
+                                                            val savedUri = com.example.utils.GallerySaver.saveImageToPublicGallery(context, wp.backPhotoPath)
+                                                            if (savedUri != null) {
+                                                                Toast.makeText(context, "¡Foto trasera guardada en la galería pública!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "No se pudo guardar la foto.", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        },
+                                                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .padding(4.dp)
+                                                            .size(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Download, contentDescription = "Descargar trasera", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
