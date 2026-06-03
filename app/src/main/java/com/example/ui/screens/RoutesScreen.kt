@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -1146,9 +1147,8 @@ fun RoutesScreen(
                 onCaptured = { front, back ->
                     activeDualCameraForPlay = false
                     if (autoSaveToGallery) {
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
-                        Toast.makeText(context, "¡Captura dual guardada en la ruta y galería!", Toast.LENGTH_SHORT).show()
+                        com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, front, back)
+                        Toast.makeText(context, "¡Composición BeReal guardada en la ruta y galería!", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "¡Captura dual guardada en la ruta!", Toast.LENGTH_SHORT).show()
                     }
@@ -1164,9 +1164,8 @@ fun RoutesScreen(
                     viewModel.setPlaybackFinishedPhotos(front, back)
                     isCelebCameraActive = false
                     if (autoSaveToGallery) {
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
-                        Toast.makeText(context, "¡Fotos de celebración guardadas en la galería!", Toast.LENGTH_SHORT).show()
+                        com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, front, back)
+                        Toast.makeText(context, "¡Composición BeReal de celebración guardada en la galería!", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onClose = { isCelebCameraActive = false }
@@ -1389,110 +1388,110 @@ fun RouteManagementCard(
 
                                     if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            if (wp.frontPhotoPath != null) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(120.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(Color.DarkGray)
-                                                ) {
-                                                    val frontFile = File(wp.frontPhotoPath)
-                                                    if (frontFile.exists() && !wp.frontPhotoPath.startsWith("mock_")) {
-                                                        Image(
-                                                            painter = rememberAsyncImagePainter(frontFile),
-                                                            contentDescription = "Foto Delantera del POI",
-                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    } else {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .background(accentColor.copy(alpha = 0.15f)),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = accentColor, modifier = Modifier.size(24.dp))
-                                                                Spacer(modifier = Modifier.height(4.dp))
-                                                                Text("Vista Delantera", fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
-                                                            }
-                                                        }
-                                                    }
+                                        
+                                        // BeReal style dual photo layout
+                                        var isSwapped by remember { mutableStateOf(false) }
+                                        val mainPath = if (isSwapped) wp.backPhotoPath else wp.frontPhotoPath
+                                        val secPath = if (isSwapped) wp.frontPhotoPath else wp.backPhotoPath
 
-                                                    IconButton(
-                                                        onClick = {
-                                                            val savedUri = com.example.utils.GallerySaver.saveImageToPublicGallery(context, wp.frontPhotoPath)
-                                                            if (savedUri != null) {
-                                                                Toast.makeText(context, "¡Foto frontal guardada en la galería pública!", Toast.LENGTH_SHORT).show()
-                                                            } else {
-                                                                Toast.makeText(context, "No se pudo guardar la foto.", Toast.LENGTH_SHORT).show()
-                                                            }
-                                                        },
-                                                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(240.dp)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(Color(0xFF1E293B))
+                                        ) {
+                                            // 1. Draw Main Background Photo
+                                            if (mainPath != null) {
+                                                val mainFile = File(mainPath)
+                                                if (mainFile.exists() && !mainPath.startsWith("mock_")) {
+                                                    Image(
+                                                        painter = rememberAsyncImagePainter(mainFile),
+                                                        contentDescription = "Foto Principal",
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                                         modifier = Modifier
-                                                            .align(Alignment.BottomEnd)
-                                                            .padding(4.dp)
-                                                            .size(32.dp)
+                                                            .fillMaxSize()
+                                                            .clickable { isSwapped = !isSwapped }
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color(0xFF0F172A))
+                                                            .clickable { isSwapped = !isSwapped },
+                                                        contentAlignment = Alignment.Center
                                                     ) {
-                                                        Icon(Icons.Default.Download, contentDescription = "Descargar frontal", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(36.dp))
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text("Perspectiva Principal", fontSize = 11.sp, color = Color.White)
+                                                        }
                                                     }
                                                 }
                                             }
 
-                                            if (wp.backPhotoPath != null) {
+                                            // 2. Draw Overlap Floating Photo (Top Right)
+                                            if (secPath != null) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(120.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(12.dp)
+                                                        .size(width = 80.dp, height = 110.dp)
+                                                        .shadow(8.dp, RoundedCornerShape(12.dp))
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .border(2.dp, Color.White, RoundedCornerShape(12.dp))
                                                         .background(Color.DarkGray)
+                                                        .clickable { isSwapped = !isSwapped }
                                                 ) {
-                                                    val backFile = File(wp.backPhotoPath)
-                                                    if (backFile.exists() && !wp.backPhotoPath.startsWith("mock_")) {
-                                                        Image(
-                                                            painter = rememberAsyncImagePainter(backFile),
-                                                            contentDescription = "Foto Trasera del POI",
-                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    } else {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .background(accentColor.copy(alpha = 0.15f)),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                                Icon(Icons.Default.Portrait, contentDescription = null, tint = accentColor, modifier = Modifier.size(24.dp))
-                                                                Spacer(modifier = Modifier.height(4.dp))
-                                                                Text("Selfie / Trasera", fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
-                                                            }
-                                                        }
-                                                    }
-
-                                                    IconButton(
-                                                        onClick = {
-                                                            val savedUri = com.example.utils.GallerySaver.saveImageToPublicGallery(context, wp.backPhotoPath)
-                                                            if (savedUri != null) {
-                                                                Toast.makeText(context, "¡Foto trasera guardada en la galería pública!", Toast.LENGTH_SHORT).show()
-                                                            } else {
-                                                                Toast.makeText(context, "No se pudo guardar la foto.", Toast.LENGTH_SHORT).show()
-                                                            }
-                                                        },
-                                                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                                                        modifier = Modifier
-                                                            .align(Alignment.BottomEnd)
-                                                            .padding(4.dp)
-                                                            .size(32.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Download, contentDescription = "Descargar trasera", tint = Color.White, modifier = Modifier.size(16.dp))
-                                                    }
+                                                     val secFile = File(secPath)
+                                                     if (secFile.exists() && !secPath.startsWith("mock_")) {
+                                                         Image(
+                                                             painter = rememberAsyncImagePainter(secFile),
+                                                             contentDescription = "Foto Secundaria",
+                                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                             modifier = Modifier.fillMaxSize()
+                                                         )
+                                                     } else {
+                                                         Box(
+                                                             modifier = Modifier
+                                                                 .fillMaxSize()
+                                                                 .background(Color(0xFF334155)),
+                                                             contentAlignment = Alignment.Center
+                                                         ) {
+                                                             Icon(Icons.Default.Portrait, contentDescription = null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+                                                         }
+                                                     }
                                                 }
+                                            }
+
+                                            // 3. Download composed BeReal image button
+                                            IconButton(
+                                                onClick = {
+                                                    val savedUri = com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, wp.frontPhotoPath, wp.backPhotoPath)
+                                                    if (savedUri != null) {
+                                                        Toast.makeText(context, "¡Composición BeReal guardada en la galería!", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "No se pudo guardar la composición.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .padding(12.dp)
+                                                    .size(40.dp)
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = "Descargar composición BeReal", tint = Color.White, modifier = Modifier.size(20.dp))
+                                            }
+
+                                            // Interaction Tip
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .padding(12.dp)
+                                                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                            ) {
+                                                Text("Toca para rotar", color = Color.White, fontSize = 9.sp)
                                             }
                                         }
                                     }

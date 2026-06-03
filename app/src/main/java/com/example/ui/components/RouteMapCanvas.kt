@@ -560,12 +560,12 @@ fun RouteMapCanvas(
                         // Outer point marker
                         drawCircle(
                             color = Color.White,
-                            radius = 12f * scale,
+                            radius = 12f,
                             center = pos
                         )
                         drawCircle(
                             color = Color(0xFFFF9500), // iOS Coral for Waypoints
-                            radius = 8f * scale,
+                            radius = 8f,
                             center = pos
                         )
                     }
@@ -574,14 +574,14 @@ fun RouteMapCanvas(
                     val startPointPos = getCanvasPos(points.first().latitude, points.first().longitude)
                     drawCircle(
                         color = Color(0xFF4CD964), // Green for start
-                        radius = 9f * scale,
+                        radius = 9f,
                         center = startPointPos
                     )
                     
                     val endPointPos = getCanvasPos(points.last().latitude, points.last().longitude)
                     drawCircle(
                         color = Color(0xFFFF3B30), // Red for end
-                        radius = 9f * scale,
+                        radius = 9f,
                         center = endPointPos
                     )
 
@@ -645,17 +645,17 @@ fun RouteMapCanvas(
                 // Pulsing dot
                 drawCircle(
                     color = if (isOffRoute) Color(0xFFFF3B30).copy(alpha = 0.4f) else routeColor.copy(alpha = 0.4f),
-                    radius = 20f * scale,
+                    radius = 22f,
                     center = userPos
                 )
                 drawCircle(
                     color = Color.White,
-                    radius = 9f * scale,
+                    radius = 10f,
                     center = userPos
                 )
                 drawCircle(
                     color = if (isOffRoute) Color(0xFFFF3B30) else routeColor,
-                    radius = 6f * scale,
+                    radius = 7f,
                     center = userPos
                 )
 
@@ -663,10 +663,10 @@ fun RouteMapCanvas(
                 val arrowRotation = if (isDirectionLocked) 0f else userBearing
                 rotate(degrees = arrowRotation, pivot = userPos) {
                     val arrowPath = Path().apply {
-                        moveTo(userPos.x, userPos.y - 12f * scale)
-                        lineTo(userPos.x - 7f * scale, userPos.y + 10f * scale)
-                        lineTo(userPos.x, userPos.y + 6f * scale)
-                        lineTo(userPos.x + 7f * scale, userPos.y + 10f * scale)
+                        moveTo(userPos.x, userPos.y - 15f)
+                        lineTo(userPos.x - 8f, userPos.y + 11f)
+                        lineTo(userPos.x, userPos.y + 7f)
+                        lineTo(userPos.x + 8f, userPos.y + 11f)
                         close()
                     }
                     drawPath(

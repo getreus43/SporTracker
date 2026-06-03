@@ -662,9 +662,8 @@ fun RecordScreen(
                     capturedBackWpPhoto = back
                     showDualCameraForWp = false
                     if (autoSaveToGallery) {
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, front)
-                        com.example.utils.GallerySaver.saveImageToPublicGallery(context, back)
-                        Toast.makeText(context, "¡Fotos guardadas en la galería!", Toast.LENGTH_SHORT).show()
+                        com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, front, back)
+                        Toast.makeText(context, "¡Composición BeReal guardada en la galería!", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onClose = { showDualCameraForWp = false }

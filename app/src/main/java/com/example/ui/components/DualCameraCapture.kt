@@ -240,21 +240,22 @@ fun DualCameraCapture(
                             onClick = {
                                 coroutineScope.launch {
                                     isCapturing = true
-                                    captureStageText = "Simulando lente trasera dinámica..."
+                                    val wasOriginallyBack = isBackActive
+                                    captureStageText = "Simulando primera perspectiva..."
                                     delay(900)
-                                    captureStageText = "Simulando lente frontal (Selfie)..."
+                                    captureStageText = "Simulando segunda perspectiva..."
                                     delay(1000)
                                     captureStageText = "¡Guardando composición dual simulada!"
                                     delay(600)
 
                                     val saveDir = context.cacheDir
-                                    val mockFrontFile = File(saveDir, "simulated_front_${System.currentTimeMillis()}.jpg")
-                                    val mockBackFile = File(saveDir, "simulated_back_${System.currentTimeMillis()}.jpg")
+                                    val mockFirstFile = File(saveDir, "simulated_primary_${System.currentTimeMillis()}.jpg")
+                                    val mockSecondFile = File(saveDir, "simulated_secondary_${System.currentTimeMillis()}.jpg")
 
-                                    mockFrontFile.writeText("simulated_front_fallback")
-                                    mockBackFile.writeText("simulated_back_fallback")
+                                    mockFirstFile.writeText("simulated_primary_click")
+                                    mockSecondFile.writeText("simulated_secondary_click")
 
-                                    onCaptured(mockFrontFile.absolutePath, mockBackFile.absolutePath)
+                                    onCaptured(mockFirstFile.absolutePath, mockSecondFile.absolutePath)
                                     isCapturing = false
                                 }
                             },
@@ -603,7 +604,7 @@ fun DualCameraCapture(
                                         captureStageText = "¡Guardando composición dual!"
                                         delay(250)
 
-                                        onCaptured(finalFront, finalBack)
+                                        onCaptured(if (isBackActive) finalFront else finalBack, if (isBackActive) finalBack else finalFront)
                                         isCapturing = false
                                     }
                                 },
