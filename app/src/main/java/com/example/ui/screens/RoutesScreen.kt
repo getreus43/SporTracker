@@ -59,6 +59,7 @@ fun RoutesScreen(
     val playbackState by viewModel.playbackState.collectAsState()
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
+    val userBearing by viewModel.userBearing.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -386,6 +387,7 @@ fun RoutesScreen(
                     showTransportOverlay = overlayTransport,
                     userLatitude = playbackState.userLatitude,
                     userLongitude = playbackState.userLongitude,
+                    userBearing = userBearing,
                     isOffRoute = playbackState.isOffRoute,
                     modifier = Modifier.fillMaxSize()
                 )

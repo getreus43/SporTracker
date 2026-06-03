@@ -40,6 +40,7 @@ fun RecordScreen(
     val mapType by viewModel.mapType.collectAsState()
     val overlayTransport by viewModel.overlayTransport.collectAsState()
     val userLoc by viewModel.userCoordinates.collectAsState()
+    val userBearing by viewModel.userBearing.collectAsState()
     
     val accentColor = remember(rawAccentColor) { Color(android.graphics.Color.parseColor(rawAccentColor)) }
     val isAmoled = themeMode in listOf("OLED", "AMOLED")
@@ -196,6 +197,7 @@ fun RecordScreen(
                     centerOn = if (state.points.isEmpty()) userLoc else null,
                     userLatitude = userLoc?.first,
                     userLongitude = userLoc?.second,
+                    userBearing = userBearing,
                     modifier = Modifier.fillMaxSize()
                 )
 

@@ -22,6 +22,21 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationSearching
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.request.ImageRequest
@@ -95,17 +110,24 @@ fun RouteMapCanvas(
     centerOn: Pair<Double, Double>? = null,
     userLatitude: Double? = null,
     userLongitude: Double? = null,
+    userBearing: Float = 0f,
     isOffRoute: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Zoom and Pan States
-    var scale by remember { mutableFloatStateOf(1f) }
+    var scale by remember { mutableFloatStateOf(1.6f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    // Reset offset/scale when points or searched location changes
-    LaunchedEffect(points, centerOn) {
-        scale = 1f
-        offset = Offset.Zero
+    // User orientation and centering lock states
+    var isLockedToUser by remember { mutableStateOf(true) }
+    var isDirectionLocked by remember { mutableStateOf(false) }
+
+    // Reset lock/scale only when route changes (first point changes) or searched location changes
+    val firstPoint = remember(points) { points.firstOrNull() }
+    LaunchedEffect(firstPoint, centerOn) {
+        scale = 1.6f
+        isLockedToUser = true
+        isDirectionLocked = false
     }
 
     // Prepare central bounding box points
@@ -198,8 +220,14 @@ fun RouteMapCanvas(
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
+                    if (pan.getDistanceSquared() > 0.1f) {
+                        isLockedToUser = false
+                        isDirectionLocked = false
+                    }
                     scale = (scale * zoom).coerceIn(0.15f, 60.0f)
-                    offset += pan
+                    if (!isLockedToUser) {
+                        offset += pan
+                    }
                 }
             }
     ) {
@@ -211,6 +239,42 @@ fun RouteMapCanvas(
             val mapWidth = widthPx - (padding * 2)
             val mapHeight = heightPx - (padding * 2)
             if (mapWidth <= 0 || mapHeight <= 0) 1f else min(mapWidth / xSpan, mapHeight / ySpan).toFloat()
+        }
+
+        val userPoint = remember(userLatitude, userLongitude, points, currentPointIndex) {
+            if (userLatitude != null && userLongitude != null) {
+                RoutePoint(userLatitude, userLongitude, 0.0, 0L)
+            } else if (currentPointIndex != null && currentPointIndex < points.size) {
+                points[currentPointIndex]
+            } else if (points.isNotEmpty()) {
+                points.last()
+            } else {
+                RoutePoint(40.416775, -3.703790, 650.0, 0L)
+            }
+        }
+
+        // Automatic GPS locking effect
+        LaunchedEffect(isLockedToUser, userPoint, bounds, baseScale, scale, widthPx, heightPx) {
+            if (isLockedToUser && widthPx > 0f && heightPx > 0f) {
+                val px = (userPoint.longitude + 180.0) / 360.0
+                val latRad = Math.toRadians(userPoint.latitude.coerceIn(-85.05112878, 85.05112878))
+                val py = (1.0 - (ln(tan(latRad) + 1.0 / cos(latRad)) / PI)) / 2.0
+
+                val padding = 150f
+                val mapWidth = widthPx - (padding * 2)
+                val mapHeight = heightPx - (padding * 2)
+
+                val mappedX = padding + (px - bounds.minX) * baseScale + (mapWidth - xSpan * baseScale) / 2
+                val mappedY = padding + (py - bounds.minY) * baseScale + (mapHeight - ySpan * baseScale) / 2
+
+                val centerX = widthPx / 2f
+                val centerY = heightPx / 2f
+
+                offset = Offset(
+                    x = -(mappedX - centerX).toFloat() * scale,
+                    y = -(mappedY - centerY).toFloat() * scale
+                )
+            }
         }
 
         // Dynamic zoom level calculation based on pinch zoom gestures
@@ -344,189 +408,240 @@ fun RouteMapCanvas(
                 return Offset(scaledX.toFloat(), scaledY.toFloat())
             }
 
-            // 1.1 Draw Real downloaded Map Imagery Tiles!
-            tilePainters.forEach { (coords, url, painter) ->
-                val (tx, ty, tz) = coords
-                val lonLeft = tileToLon(tx, tz)
-                val latTop = tileToLat(ty, tz)
-                val lonRight = tileToLon(tx + 1, tz)
-                val latBottom = tileToLat(ty + 1, tz)
+            val userPos = getCanvasPos(userPoint.latitude, userPoint.longitude)
+            val bearing = if (isDirectionLocked) userBearing else 0f
 
-                val pTopLeft = getCanvasPos(latTop, lonLeft)
-                val pBottomRight = getCanvasPos(latBottom, lonRight)
+            // All map elements are drawn rotated under the rotate(-bearing) block
+            rotate(degrees = -bearing, pivot = userPos) {
+                // 1.1 Draw Real downloaded Map Imagery Tiles!
+                tilePainters.forEach { (coords, url, painter) ->
+                    val (tx, ty, tz) = coords
+                    val lonLeft = tileToLon(tx, tz)
+                    val latTop = tileToLat(ty, tz)
+                    val lonRight = tileToLon(tx + 1, tz)
+                    val latBottom = tileToLat(ty + 1, tz)
 
-                val tileW = pBottomRight.x - pTopLeft.x
-                val tileH = pBottomRight.y - pTopLeft.y
+                    val pTopLeft = getCanvasPos(latTop, lonLeft)
+                    val pBottomRight = getCanvasPos(latBottom, lonRight)
 
-                translate(pTopLeft.x, pTopLeft.y) {
-                    with(painter) {
-                        draw(size = androidx.compose.ui.geometry.Size(tileW, tileH))
+                    val tileW = pBottomRight.x - pTopLeft.x
+                    val tileH = pBottomRight.y - pTopLeft.y
+
+                    translate(pTopLeft.x, pTopLeft.y) {
+                        with(painter) {
+                            draw(size = androidx.compose.ui.geometry.Size(tileW, tileH))
+                        }
                     }
                 }
-            }
 
-            // 1.2 Add subtle vector enhancements depending on selection
-            if (resolvedType == "Topográfico") {
-                val contourColor = (if (isAmoled) Color(0xFFC0DEC0) else Color(0xFF3F6443)).copy(alpha = 0.15f)
-                val topoCenter = Offset(width / 2f + offset.x, height / 2f + offset.y)
-                for (r in 1..10) {
-                    drawCircle(
-                        color = contourColor,
-                        radius = (r * 120f * scale),
-                        center = topoCenter,
-                        style = Stroke(width = 1f * scale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f * scale, 12f * scale), 0f))
-                    )
-                }
-            }
-
-            // 1.3 Draw Public and Private Transport Overlay (extra optional Google style layer)
-            if (showTransportOverlay) {
-                val ptOffset = offset
-                // Draw Green Metro Transit Line
-                val lineGreenStart = Offset(-400f * scale + ptOffset.x, -100f * scale + ptOffset.y)
-                val lineGreenEnd = Offset(width + 400f * scale + ptOffset.x, height + 100f * scale + ptOffset.y)
-                drawLine(
-                    color = Color(0xFF00B050), // Metro Vibrant Green
-                    start = lineGreenStart,
-                    end = lineGreenEnd,
-                    strokeWidth = 4f * scale
-                )
-
-                // Draw Purple Subway Transit Line
-                val linePurpleStart = Offset(-200f * scale + ptOffset.x, height + 200f * scale + ptOffset.y)
-                val linePurpleEnd = Offset(width + 200f * scale + ptOffset.x, -200f * scale + ptOffset.y)
-                drawLine(
-                    color = Color(0xFF7030A0), // Subway Purple
-                    start = linePurpleStart,
-                    end = linePurpleEnd,
-                    strokeWidth = 4f * scale
-                )
-
-                // Draw Transit Station Circles
-                val stationOffsets = listOf(
-                    lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.25f,
-                    lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.55f,
-                    lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.85f,
-                    linePurpleStart + (linePurpleEnd - linePurpleStart) * 0.35f,
-                    linePurpleStart + (linePurpleEnd - linePurpleStart) * 0.75f
-                )
-                
-                stationOffsets.forEach { stat ->
-                    drawCircle(color = Color.White, radius = 6f * scale, center = stat)
-                    drawCircle(color = Color.DarkGray, radius = 4f * scale, center = stat, style = Stroke(width = 1.5f * scale))
+                // 1.2 Add subtle vector enhancements depending on selection
+                if (resolvedType == "Topográfico") {
+                    val contourColor = (if (isAmoled) Color(0xFFC0DEC0) else Color(0xFF3F6443)).copy(alpha = 0.15f)
+                    val topoCenter = Offset(width / 2f + offset.x, height / 2f + offset.y)
+                    for (r in 1..10) {
+                        drawCircle(
+                            color = contourColor,
+                            radius = (r * 120f * scale),
+                            center = topoCenter,
+                            style = Stroke(width = 1f * scale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f * scale, 12f * scale), 0f))
+                        )
+                    }
                 }
 
-                // Traffic Flow overlays (Private transport status red/yellow/green)
-                if (resolvedType == "Carreteras Base") {
-                    val dy = height / 2f + ptOffset.y
-                    // Paint traffic speeds on the horizontal highway
+                // 1.3 Draw Public and Private Transport Overlay (extra optional Google style layer)
+                if (showTransportOverlay) {
+                    val ptOffset = offset
+                    // Draw Green Metro Transit Line
+                    val lineGreenStart = Offset(-400f * scale + ptOffset.x, -100f * scale + ptOffset.y)
+                    val lineGreenEnd = Offset(width + 400f * scale + ptOffset.x, height + 100f * scale + ptOffset.y)
                     drawLine(
-                        color = Color(0xFF4CD964), // Fluid Green
-                        start = Offset(0f, dy),
-                        end = Offset(width * 0.35f, dy),
+                        color = Color(0xFF00B050), // Metro Vibrant Green
+                        start = lineGreenStart,
+                        end = lineGreenEnd,
                         strokeWidth = 4f * scale
                     )
+
+                    // Draw Purple Subway Transit Line
+                    val linePurpleStart = Offset(-200f * scale + ptOffset.x, height + 200f * scale + ptOffset.y)
+                    val linePurpleEnd = Offset(width + 200f * scale + ptOffset.x, -200f * scale + ptOffset.y)
                     drawLine(
-                        color = Color(0xFFFFCC00), // Moderate Orange-Yellow
-                        start = Offset(width * 0.35f, dy),
-                        end = Offset(width * 0.65f, dy),
+                        color = Color(0xFF7030A0), // Subway Purple
+                        start = linePurpleStart,
+                        end = linePurpleEnd,
                         strokeWidth = 4f * scale
                     )
-                    drawLine(
-                        color = Color(0xFFFF3B30), // Heavy Red Congestion
-                        start = Offset(width * 0.65f, dy),
-                        end = Offset(width, dy),
-                        strokeWidth = 4f * scale
+
+                    // Draw Transit Station Circles
+                    val stationOffsets = listOf(
+                        lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.25f,
+                        lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.55f,
+                        lineGreenStart + (lineGreenEnd - lineGreenStart) * 0.85f,
+                        linePurpleStart + (linePurpleEnd - linePurpleStart) * 0.35f,
+                        linePurpleStart + (linePurpleEnd - linePurpleStart) * 0.75f
                     )
+                    
+                    stationOffsets.forEach { stat ->
+                        drawCircle(color = Color.White, radius = 6f * scale, center = stat)
+                        drawCircle(color = Color.DarkGray, radius = 4f * scale, center = stat, style = Stroke(width = 1.5f * scale))
+                    }
+
+                    // Traffic Flow overlays (Private transport status red/yellow/green)
+                    if (resolvedType == "Carreteras Base") {
+                        val dy = height / 2f + ptOffset.y
+                        // Paint traffic speeds on the horizontal highway
+                        drawLine(
+                            color = Color(0xFF4CD964), // Fluid Green
+                            start = Offset(0f, dy),
+                            end = Offset(width * 0.35f, dy),
+                            strokeWidth = 4f * scale
+                        )
+                        drawLine(
+                            color = Color(0xFFFFCC00), // Moderate Orange-Yellow
+                            start = Offset(width * 0.35f, dy),
+                            end = Offset(width * 0.65f, dy),
+                            strokeWidth = 4f * scale
+                        )
+                        drawLine(
+                            color = Color(0xFFFF3B30), // Heavy Red Congestion
+                            start = Offset(width * 0.65f, dy),
+                            end = Offset(width, dy),
+                            strokeWidth = 4f * scale
+                        )
+                    }
                 }
-            }
 
-            // 2. Draw GPS line path if points exist
-            if (points.isNotEmpty()) {
-                // Draw Track Lines
-                val path = Path()
-                val startPos = getCanvasPos(points[0].latitude, points[0].longitude)
-                path.moveTo(startPos.x, startPos.y)
+                // 2. Draw GPS line path if points exist
+                if (points.isNotEmpty()) {
+                    // Draw Track Lines
+                    val path = Path()
+                    val startPos = getCanvasPos(points[0].latitude, points[0].longitude)
+                    path.moveTo(startPos.x, startPos.y)
 
-                val limit = currentPointIndex ?: (points.size - 1)
-                
-                for (i in 1..limit.coerceIn(0, points.size - 1)) {
-                    val pos = getCanvasPos(points[i].latitude, points[i].longitude)
-                    path.lineTo(pos.x, pos.y)
-                }
-
-                // Draw Path glowing underlay
-                drawPath(
-                    path = path,
-                    color = routeColor.copy(alpha = 0.25f),
-                    style = Stroke(width = 16f, pathEffect = PathEffect.cornerPathEffect(15f))
-                )
-
-                // Draw Path line
-                drawPath(
-                    path = path,
-                    color = routeColor,
-                    style = Stroke(width = 6f, pathEffect = PathEffect.cornerPathEffect(15f))
-                )
-
-                // Draw remaining track in gray if in playback mode
-                if (currentPointIndex != null && currentPointIndex < points.size - 1) {
-                    val unreachedPath = Path()
-                    val resumePos = getCanvasPos(points[currentPointIndex].latitude, points[currentPointIndex].longitude)
-                    unreachedPath.moveTo(resumePos.x, resumePos.y)
-                    for (i in (currentPointIndex + 1) until points.size) {
+                    val limit = currentPointIndex ?: (points.size - 1)
+                    
+                    for (i in 1..limit.coerceIn(0, points.size - 1)) {
                         val pos = getCanvasPos(points[i].latitude, points[i].longitude)
-                        unreachedPath.lineTo(pos.x, pos.y)
+                        path.lineTo(pos.x, pos.y)
                     }
+
+                    // Draw Path glowing underlay
                     drawPath(
-                        path = unreachedPath,
-                        color = Color.LightGray.copy(alpha = 0.5f),
-                        style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+                        path = path,
+                        color = routeColor.copy(alpha = 0.25f),
+                        style = Stroke(width = 16f, pathEffect = PathEffect.cornerPathEffect(15f))
                     )
+
+                    // Draw Path line
+                    drawPath(
+                        path = path,
+                        color = routeColor,
+                        style = Stroke(width = 6f, pathEffect = PathEffect.cornerPathEffect(15f))
+                    )
+
+                    // Draw remaining track in gray if in playback mode
+                    if (currentPointIndex != null && currentPointIndex < points.size - 1) {
+                        val unreachedPath = Path()
+                        val resumePos = getCanvasPos(points[currentPointIndex].latitude, points[currentPointIndex].longitude)
+                        unreachedPath.moveTo(resumePos.x, resumePos.y)
+                        for (i in (currentPointIndex + 1) until points.size) {
+                            val pos = getCanvasPos(points[i].latitude, points[i].longitude)
+                            unreachedPath.lineTo(pos.x, pos.y)
+                        }
+                        drawPath(
+                            path = unreachedPath,
+                            color = Color.LightGray.copy(alpha = 0.5f),
+                            style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+                        )
+                    }
+
+                    // 3. Draw Waypoints / Pins
+                    for (wp in waypoints) {
+                        val pos = getCanvasPos(wp.latitude, wp.longitude)
+                        // Outer point marker
+                        drawCircle(
+                            color = Color.White,
+                            radius = 12f * scale,
+                            center = pos
+                        )
+                        drawCircle(
+                            color = Color(0xFFFF9500), // iOS Coral for Waypoints
+                            radius = 8f * scale,
+                            center = pos
+                        )
+                    }
+
+                    // Also draw start and end markers
+                    val startPointPos = getCanvasPos(points.first().latitude, points.first().longitude)
+                    drawCircle(
+                        color = Color(0xFF4CD964), // Green for start
+                        radius = 9f * scale,
+                        center = startPointPos
+                    )
+                    
+                    val endPointPos = getCanvasPos(points.last().latitude, points.last().longitude)
+                    drawCircle(
+                        color = Color(0xFFFF3B30), // Red for end
+                        radius = 9f * scale,
+                        center = endPointPos
+                    )
+
+                    // Draw redirect line if off route
+                    if (isOffRoute) {
+                        val remainingPoints = if (currentPointIndex != null && currentPointIndex < points.size) {
+                            points.subList(currentPointIndex, points.size)
+                        } else {
+                            points
+                        }
+                        val closestPt = remainingPoints.minByOrNull { pt: RoutePoint ->
+                            com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
+                        } ?: points.minByOrNull { pt: RoutePoint ->
+                            com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
+                        }
+                        if (closestPt != null) {
+                            val routePos = getCanvasPos(closestPt.latitude, closestPt.longitude)
+                            drawLine(
+                                color = Color(0xFFFF9500), // Vibrant Orange redirection line
+                                start = userPos,
+                                end = routePos,
+                                strokeWidth = 5f * scale,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f * scale, 15f * scale), 0f)
+                            )
+                        }
+                    }
                 }
 
-                // 3. Draw Waypoints / Pins
-                for (wp in waypoints) {
-                    val pos = getCanvasPos(wp.latitude, wp.longitude)
-                    // Outer point marker
+                // 5. Draw searched location marker pin if provided
+                if (centerOn != null) {
+                    val pinPos = getCanvasPos(centerOn.first, centerOn.second)
+                    // Draw drop shadow
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        radius = 8f * scale,
+                        center = pinPos + Offset(2f * scale, 3f * scale)
+                    )
+                    // Draw outer beautiful crimson ring
+                    drawCircle(
+                        color = Color(0xFFC30010),
+                        radius = 12f * scale,
+                        center = pinPos
+                    )
+                    // Draw inner bright white center dot
                     drawCircle(
                         color = Color.White,
-                        radius = 12f * scale,
-                        center = pos
+                        radius = 5f * scale,
+                        center = pinPos
                     )
+                    // Draw a matching glowing aura
                     drawCircle(
-                        color = Color(0xFFFF9500), // iOS Coral for Waypoints
-                        radius = 8f * scale,
-                        center = pos
+                        color = Color(0xFFC30010).copy(alpha = 0.2f),
+                        radius = 28f * scale,
+                        center = pinPos
                     )
                 }
+            }
 
-                // Also draw start and end markers
-                val startPointPos = getCanvasPos(points.first().latitude, points.first().longitude)
-                drawCircle(
-                    color = Color(0xFF4CD964), // Green for start
-                    radius = 9f * scale,
-                    center = startPointPos
-                )
-                
-                val endPointPos = getCanvasPos(points.last().latitude, points.last().longitude)
-                drawCircle(
-                    color = Color(0xFFFF3B30), // Red for end
-                    radius = 9f * scale,
-                    center = endPointPos
-                )
-
-                // 4. Draw User Pointer (pulsing overlay)
-                val userPoint = if (userLatitude != null && userLongitude != null) {
-                    RoutePoint(userLatitude, userLongitude, 0.0, 0L)
-                } else if (currentPointIndex != null && currentPointIndex < points.size) {
-                    points[currentPointIndex]
-                } else {
-                    points.last()
-                }
-
-                val userPos = getCanvasPos(userPoint.latitude, userPoint.longitude)
-
+            // Draw User Pointer (pulsing overlay + directional triangle arrow) OUTSIDE map rotation block
+            if (points.isNotEmpty() || (userLatitude != null && userLongitude != null)) {
                 // Pulsing dot
                 drawCircle(
                     color = if (isOffRoute) Color(0xFFFF3B30).copy(alpha = 0.4f) else routeColor.copy(alpha = 0.4f),
@@ -544,57 +659,68 @@ fun RouteMapCanvas(
                     center = userPos
                 )
 
-                // Draw redirect line if off route
-                if (isOffRoute) {
-                    val remainingPoints = if (currentPointIndex != null && currentPointIndex < points.size) {
-                        points.subList(currentPointIndex, points.size)
-                    } else {
-                        points
+                // Directional pointer (arrowhead/cone pointing forward)
+                val arrowRotation = if (isDirectionLocked) 0f else userBearing
+                rotate(degrees = arrowRotation, pivot = userPos) {
+                    val arrowPath = Path().apply {
+                        moveTo(userPos.x, userPos.y - 12f * scale)
+                        lineTo(userPos.x - 7f * scale, userPos.y + 10f * scale)
+                        lineTo(userPos.x, userPos.y + 6f * scale)
+                        lineTo(userPos.x + 7f * scale, userPos.y + 10f * scale)
+                        close()
                     }
-                    val closestPt = remainingPoints.minByOrNull { pt: RoutePoint ->
-                        com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
-                    } ?: points.minByOrNull { pt: RoutePoint ->
-                        com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
-                    }
-                    if (closestPt != null) {
-                        val routePos = getCanvasPos(closestPt.latitude, closestPt.longitude)
-                        drawLine(
-                            color = Color(0xFFFF9500), // Vibrant Orange redirection line
-                            start = userPos,
-                            end = routePos,
-                            strokeWidth = 5f * scale,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f * scale, 15f * scale), 0f)
-                        )
-                    }
+                    drawPath(
+                        path = arrowPath,
+                        color = if (isOffRoute) Color(0xFFFF3B30) else routeColor
+                    )
                 }
             }
+        }
 
-            // 5. Draw searched location marker pin if provided
-            if (centerOn != null) {
-                val pinPos = getCanvasPos(centerOn.first, centerOn.second)
-                // Draw drop shadow
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.35f),
-                    radius = 8f * scale,
-                    center = pinPos + Offset(2f * scale, 3f * scale)
-                )
-                // Draw outer beautiful crimson ring
-                drawCircle(
-                    color = Color(0xFFC30010),
-                    radius = 12f * scale,
-                    center = pinPos
-                )
-                // Draw inner bright white center dot
-                drawCircle(
-                    color = Color.White,
-                    radius = 5f * scale,
-                    center = pinPos
-                )
-                // Draw a matching glowing aura
-                drawCircle(
-                    color = Color(0xFFC30010).copy(alpha = 0.2f),
-                    radius = 28f * scale,
-                    center = pinPos
+        // Floating lock and compass orientation controller button overlayed on map
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            val icon = when {
+                isLockedToUser && isDirectionLocked -> Icons.Default.Navigation
+                isLockedToUser -> Icons.Default.MyLocation
+                else -> Icons.Default.LocationSearching
+            }
+            val containerColor = when {
+                isLockedToUser && isDirectionLocked -> MaterialTheme.colorScheme.primary
+                isLockedToUser -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            }
+            val contentColor = when {
+                isLockedToUser && isDirectionLocked -> MaterialTheme.colorScheme.onPrimary
+                isLockedToUser -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+
+            FloatingActionButton(
+                onClick = {
+                    if (!isLockedToUser) {
+                        isLockedToUser = true
+                        isDirectionLocked = false
+                    } else if (!isDirectionLocked) {
+                        isDirectionLocked = true
+                    } else {
+                        isLockedToUser = false
+                        isDirectionLocked = false
+                    }
+                },
+                containerColor = containerColor,
+                contentColor = contentColor,
+                modifier = Modifier
+                    .size(56.dp)
+                    .testTag("map_lock_to_user_button")
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = "Fijar vista y orientación rumbo",
+                    modifier = Modifier.rotate(if (isLockedToUser && isDirectionLocked) -45f else 0f)
                 )
             }
         }

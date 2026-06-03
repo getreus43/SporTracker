@@ -77,6 +77,9 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     // Live physical GPS coordinates feed
     private val _userCoordinates = MutableStateFlow<Pair<Double, Double>?>(null)
     val userCoordinates: StateFlow<Pair<Double, Double>?> = _userCoordinates.asStateFlow()
+
+    private val _userBearing = MutableStateFlow(0f)
+    val userBearing: StateFlow<Float> = _userBearing.asStateFlow()
     
     private fun isLocationReliable(location: android.location.Location, lastPoint: RoutePoint?): Boolean {
         // 1. Reject very inaccurate points (e.g. > 30m accuracy is bad lock)
@@ -125,7 +128,33 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         override fun onLocationChanged(location: android.location.Location) {
             // Apply accuracy checks to general user coordinates (no previous proximity comparison is done, so map pointer doesn't get stuck)
             if (isLocationReliable(location, null)) {
-                _userCoordinates.value = Pair(location.latitude, location.longitude)
+                val lastCoords = _userCoordinates.value
+                val newCoords = Pair(location.latitude, location.longitude)
+                _userCoordinates.value = newCoords
+                
+                // Track bearing/direction
+                if (location.hasBearing()) {
+                    _userBearing.value = location.bearing
+                } else if (lastCoords != null) {
+                    val lat1 = Math.toRadians(lastCoords.first)
+                    val lon1 = Math.toRadians(lastCoords.second)
+                    val lat2 = Math.toRadians(newCoords.first)
+                    val lon2 = Math.toRadians(newCoords.second)
+                    
+                    val dLon = lon2 - lon1
+                    val y = Math.sin(dLon) * Math.cos(lat2)
+                    val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+                    val brngRad = Math.atan2(y, x)
+                    val brngDeg = (Math.toDegrees(brngRad) + 360f) % 360f
+                    
+                    val distKm = GpxParser.calculateDistanceKm(
+                        RoutePoint(lastCoords.first, lastCoords.second, 0.0, 0L),
+                        RoutePoint(newCoords.first, newCoords.second, 0.0, 0L)
+                    )
+                    if (distKm > 0.001) { // 1 meter
+                        _userBearing.value = brngDeg.toFloat()
+                    }
+                }
                 
                 if (_playbackState.value.isPlaying && !_playbackState.value.isSimulationMode) {
                     val state = _playbackState.value
