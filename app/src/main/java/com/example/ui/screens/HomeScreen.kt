@@ -437,7 +437,7 @@ fun HomeScreen(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(
-                                                text = "${route.totalDistanceKm} km • Dificultad: ${route.difficultyScore}/10",
+                                                text = "${com.example.utils.GpxParser.formatDistance(route.totalDistanceKm)} • Dificultad: ${route.difficultyScore}/10",
                                                 fontSize = 11.sp,
                                                 color = Color.Gray
                                             )
@@ -640,7 +640,7 @@ fun HomeScreen(
                                     color = if (isAmoled) Color.White else MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = highlightedRoute?.let { "${it.totalDistanceKm} km • ${formatDuration(it.totalDurationSeconds)}" } ?: "Carga rutas GPX en la pestaña Rutas",
+                                    text = highlightedRoute?.let { "${com.example.utils.GpxParser.formatDistance(it.totalDistanceKm)} • ${formatDuration(it.totalDurationSeconds)}" } ?: "Carga rutas GPX en la pestaña Rutas",
                                     fontSize = 12.sp,
                                     color = Color.Gray
                                 )
@@ -741,7 +741,7 @@ fun RouteMinimalItem(
                 color = if (isAmoled) Color.White else MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "${route.totalDistanceKm} km • ${formatDuration(route.totalDurationSeconds)} • Dificultad: ${route.difficultyScore}/10",
+                text = "${com.example.utils.GpxParser.formatDistance(route.totalDistanceKm)} • ${formatDuration(route.totalDurationSeconds)} • Dificultad: ${route.difficultyScore}/10",
                 fontSize = 11.sp,
                 color = Color.Gray
             )

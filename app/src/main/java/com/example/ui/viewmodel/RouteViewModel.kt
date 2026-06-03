@@ -79,29 +79,40 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     val userCoordinates: StateFlow<Pair<Double, Double>?> = _userCoordinates.asStateFlow()
     
     private fun isLocationReliable(location: android.location.Location, lastPoint: RoutePoint?): Boolean {
-        // 1. Reject very inaccurate points (e.g. > 35m accuracy is raw tower or bad lock)
-        if (location.hasAccuracy() && location.accuracy > 35f) {
+        // 1. Reject very inaccurate points (e.g. > 30m accuracy is bad lock)
+        if (location.hasAccuracy() && location.accuracy > 30f) {
             return false
         }
         
         // 2. Treat network provider points with extreme suspicion (must be highly accurate if used at all)
         if (location.provider == android.location.LocationManager.NETWORK_PROVIDER) {
-            if (!location.hasAccuracy() || location.accuracy > 30f) {
+            if (!location.hasAccuracy() || location.accuracy > 25f) {
                 return false
             }
         }
 
-        // 3. Prevent teleport jumps: check physical speed limit
+        // 3. Prevent teleport jumps: check physical speed limit and sudden large steps
         if (lastPoint != null) {
             val distKm = GpxParser.calculateDistanceKm(
                 lastPoint,
                 RoutePoint(location.latitude, location.longitude, location.altitude, System.currentTimeMillis())
             )
-            val elapsedSeconds = kotlin.math.max(1L, (System.currentTimeMillis() - lastPoint.timestamp) / 1000L)
-            val speedKmh = (distKm / elapsedSeconds) * 3600.0
+            val timeDiffMs = System.currentTimeMillis() - lastPoint.timestamp
+            val elapsedSeconds = Math.max(0.1, timeDiffMs / 1000.0)
             
-            // Reject if speed exceeds 130 km/h (unrealistic for trail/sport walking/running)
-            if (speedKmh > 130.0 && distKm > 0.1) {
+            val distanceMeters = distKm * 1000.0
+            val speedMs = distanceMeters / elapsedSeconds
+
+            // Maximum realistic speed for cycling/trail/sprint is 150.0 m/s (~540 km/h, covering trains and simulation jumps)
+            val maxSpeedMs = 150.0
+
+            // If time gap is large, we assume it's a legitimate signal recovery.
+            if (timeDiffMs > 10000L) {
+                return true
+            }
+
+            // If speed exceeds maximum, or we get an extreme, physically impossible jump in a split second, reject
+            if ((speedMs > maxSpeedMs && distanceMeters > 300.0) || (elapsedSeconds < 1.0 && distanceMeters > 200.0)) {
                 return false
             }
         }
@@ -112,22 +123,22 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private var locationManager: android.location.LocationManager? = null
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: android.location.Location) {
-            if (location.hasAccuracy() && location.accuracy > 45f) {
-                return
-            }
-            _userCoordinates.value = Pair(location.latitude, location.longitude)
-            
-            if (_playbackState.value.isPlaying && !_playbackState.value.isSimulationMode) {
-                val state = _playbackState.value
-                val lastPlaybackPoint = state.route?.getPoints()?.getOrNull(state.currentPointIndex)
-                if (isLocationReliable(location, lastPlaybackPoint)) {
-                    updateUserLocation(location.latitude, location.longitude)
+            // Apply accuracy checks to general user coordinates (no previous proximity comparison is done, so map pointer doesn't get stuck)
+            if (isLocationReliable(location, null)) {
+                _userCoordinates.value = Pair(location.latitude, location.longitude)
+                
+                if (_playbackState.value.isPlaying && !_playbackState.value.isSimulationMode) {
+                    val state = _playbackState.value
+                    val lastPlaybackPoint = state.route?.getPoints()?.getOrNull(state.currentPointIndex)
+                    if (isLocationReliable(location, lastPlaybackPoint)) {
+                        updateUserLocation(location.latitude, location.longitude)
+                    }
                 }
-            }
-            if (_recordingState.value.isRecording && !_recordingState.value.isPaused) {
-                val lastRecordPoint = _recordingState.value.points.lastOrNull()
-                if (isLocationReliable(location, lastRecordPoint)) {
-                    handleRecordLocationUpdate(location)
+                if (_recordingState.value.isRecording && !_recordingState.value.isPaused) {
+                    val lastRecordPoint = _recordingState.value.points.lastOrNull()
+                    if (isLocationReliable(location, lastRecordPoint)) {
+                        handleRecordLocationUpdate(location)
+                    }
                 }
             }
         }
@@ -440,11 +451,13 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         val points = route.getPoints()
         if (points.isEmpty()) return
 
-        // Find closest point
+        // Under route tracking redirection: find the closest point which they have NOT passed yet
+        // Meaning indices starting from current progress onwards
+        val startIndex = Math.max(0, state.currentPointIndex)
         var minDistance = Double.MAX_VALUE
-        var closestIdx = 0
+        var closestIdx = startIndex
 
-        for (i in points.indices) {
+        for (i in startIndex until points.size) {
             val dist = GpxParser.calculateDistanceKm(
                 RoutePoint(lat, lon, 0.0, 0L),
                 points[i]
@@ -586,11 +599,6 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
     private fun startRecordingLoop() {
         recordingJob?.cancel()
         recordingJob = viewModelScope.launch {
-            // Simulated fallback start coordinates (Madrid center), only used if actual device coordinates do not arrive
-            var currentLat = 40.4168
-            var currentLon = -3.7038
-            var currentAlt = 650.0
-            
             var seconds = 0L
 
             while (_recordingState.value.isRecording) {
@@ -604,32 +612,6 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
 
                 // Update clock timer state
                 _recordingState.value = _recordingState.value.copy(elapsedSeconds = seconds)
-
-                // Pure GPS fallback simulation logic:
-                // If there has been absolutely no GPS coordinates recorded yet (e.g. running on an emulator without physical GPS),
-                // simulate synthetic coordinates so that the app's recording flow still progresses perfectly.
-                if (_recordingState.value.points.isEmpty()) {
-                    val angle = Math.random() * 2 * Math.PI
-                    val step = 0.0003 // around 30 meters
-                    currentLat += Math.sin(angle) * step
-                    currentLon += Math.cos(angle) * step
-                    currentAlt += (Math.random() - 0.5) * 4.0
-
-                    val newPoint = RoutePoint(currentLat, currentLon, currentAlt, System.currentTimeMillis())
-                    val updatedPoints = _recordingState.value.points + newPoint
-
-                    var distance = 0.0
-                    if (updatedPoints.size > 1) {
-                        for (i in 0 until updatedPoints.size - 1) {
-                            distance += GpxParser.calculateDistanceKm(updatedPoints[i], updatedPoints[i + 1])
-                        }
-                    }
-
-                    _recordingState.value = _recordingState.value.copy(
-                        points = updatedPoints,
-                        distanceKm = distance
-                    )
-                }
             }
         }
     }
@@ -685,8 +667,8 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
 
     fun addRecordingWaypoint(name: String, description: String, frontPhoto: String?, backPhoto: String?) {
         val state = _recordingState.value
-        val lat = state.points.lastOrNull()?.latitude ?: 40.4168
-        val lon = state.points.lastOrNull()?.longitude ?: -3.7038
+        val lat = state.points.lastOrNull()?.latitude ?: _userCoordinates.value?.first ?: 40.4168
+        val lon = state.points.lastOrNull()?.longitude ?: _userCoordinates.value?.second ?: -3.7038
         
         val newWp = Waypoint(
             latitude = lat,

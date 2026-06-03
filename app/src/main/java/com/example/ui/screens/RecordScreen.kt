@@ -193,6 +193,7 @@ fun RecordScreen(
                     isAmoled = isAmoled,
                     mapType = mapType,
                     showTransportOverlay = overlayTransport,
+                    centerOn = if (state.points.isEmpty()) userLoc else null,
                     userLatitude = userLoc?.first,
                     userLongitude = userLoc?.second,
                     modifier = Modifier.fillMaxSize()
@@ -218,7 +219,7 @@ fun RecordScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Distancia", fontSize = 11.sp, color = Color.Gray)
                             Text(
-                                text = String.format("%.2f km", state.distanceKm),
+                                text = com.example.utils.GpxParser.formatDistance(state.distanceKm),
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isAmoled) Color.White else MaterialTheme.colorScheme.onSurface

@@ -109,7 +109,7 @@ fun RouteMapCanvas(
     }
 
     // Prepare central bounding box points
-    val mapPoints = remember(points, centerOn) {
+    val mapPoints = remember(points, centerOn, userLatitude, userLongitude) {
         if (centerOn != null) {
             listOf(
                 RoutePoint(latitude = centerOn.first - 0.005, longitude = centerOn.second - 0.005, altitude = 0.0, timestamp = 0L),
@@ -117,6 +117,11 @@ fun RouteMapCanvas(
             )
         } else if (points.isNotEmpty()) {
             points
+        } else if (userLatitude != null && userLongitude != null) {
+            listOf(
+                RoutePoint(latitude = userLatitude - 0.005, longitude = userLongitude - 0.005, altitude = 650.0, timestamp = 0L),
+                RoutePoint(latitude = userLatitude + 0.005, longitude = userLongitude + 0.005, altitude = 650.0, timestamp = 1000L)
+            )
         } else {
             listOf(
                 RoutePoint(latitude = 40.416775, longitude = -3.703790, altitude = 650.0, timestamp = 0L),
@@ -125,10 +130,10 @@ fun RouteMapCanvas(
         }
     }
 
-    val minLat = remember(mapPoints) { mapPoints.minOfOrNull { it.latitude } ?: 40.416775 }
-    val maxLat = remember(mapPoints) { mapPoints.maxOfOrNull { it.latitude } ?: 40.426775 }
-    val minLon = remember(mapPoints) { mapPoints.minOfOrNull { it.longitude } ?: -3.703790 }
-    val maxLon = remember(mapPoints) { mapPoints.maxOfOrNull { it.longitude } ?: -3.693790 }
+    val minLat = remember(mapPoints) { mapPoints.minOfOrNull { it.latitude } ?: userLatitude ?: 40.416775 }
+    val maxLat = remember(mapPoints) { mapPoints.maxOfOrNull { it.latitude } ?: (userLatitude?.let { it + 0.01 } ?: 40.426775) }
+    val minLon = remember(mapPoints) { mapPoints.minOfOrNull { it.longitude } ?: userLongitude ?: -3.703790 }
+    val maxLon = remember(mapPoints) { mapPoints.maxOfOrNull { it.longitude } ?: (userLongitude?.let { it + 0.01 } ?: -3.693790) }
 
     val latSpan = remember(minLat, maxLat) { if (maxLat - minLat == 0.0) 0.001 else maxLat - minLat }
     val lonSpan = remember(minLon, maxLon) { if (maxLon - minLon == 0.0) 0.001 else maxLon - minLon }
@@ -541,7 +546,14 @@ fun RouteMapCanvas(
 
                 // Draw redirect line if off route
                 if (isOffRoute) {
-                    val closestPt = points.minByOrNull { pt: RoutePoint ->
+                    val remainingPoints = if (currentPointIndex != null && currentPointIndex < points.size) {
+                        points.subList(currentPointIndex, points.size)
+                    } else {
+                        points
+                    }
+                    val closestPt = remainingPoints.minByOrNull { pt: RoutePoint ->
+                        com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
+                    } ?: points.minByOrNull { pt: RoutePoint ->
                         com.example.utils.GpxParser.calculateDistanceKm(userPoint, pt)
                     }
                     if (closestPt != null) {

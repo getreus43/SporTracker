@@ -274,6 +274,15 @@ object GpxParser {
         dist *= 60 * 1.1515 * 1.609344 // to kilometers
         return if (dist.isNaN()) 0.0 else dist
     }
+
+    fun formatDistance(km: Double): String {
+        return if (km < 1.0) {
+            val meters = Math.round(km * 1000.0).toInt()
+            "$meters m"
+        } else {
+            String.format("%.2f km", km)
+        }
+    }
     
     fun calculateSimulatedScore(): Float {
         // simulated score between 7.5 and 9.8 by default

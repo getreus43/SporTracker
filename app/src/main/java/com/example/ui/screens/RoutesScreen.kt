@@ -251,7 +251,7 @@ fun RoutesScreen(
                                 Column {
                                     Text("Distancia Total", fontSize = 11.sp, color = Color.Gray)
                                     Text(
-                                        String.format("%.2f km", playbackState.distanceCoveredKm),
+                                        com.example.utils.GpxParser.formatDistance(playbackState.distanceCoveredKm),
                                         fontWeight = FontWeight.Bold,
                                         color = accentColor,
                                         fontSize = 18.sp
@@ -305,7 +305,7 @@ fun RoutesScreen(
                             onClick = {
                                 val sendIntent: Intent = Intent().apply {
                                     action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, "¡He completado la ruta '${playbackState.route?.name}' (${String.format("%.2f km", playbackState.distanceCoveredKm)}) usando la app Rutas GPX!")
+                                    putExtra(Intent.EXTRA_TEXT, "¡He completado la ruta '${playbackState.route?.name}' (${com.example.utils.GpxParser.formatDistance(playbackState.distanceCoveredKm)}) usando la app Rutas GPX!")
                                     type = "text/plain"
                                 }
                                 val shareIntent = Intent.createChooser(sendIntent, null)
@@ -521,7 +521,7 @@ fun RoutesScreen(
                                 Column {
                                     Text("Distancia cubierta", fontSize = 10.sp, color = Color.Gray)
                                     Text(
-                                        String.format("%.2f / %.2f km", playbackState.distanceCoveredKm, route?.totalDistanceKm ?: 0.0),
+                                        "${com.example.utils.GpxParser.formatDistance(playbackState.distanceCoveredKm)} / ${com.example.utils.GpxParser.formatDistance(route?.totalDistanceKm ?: 0.0)}",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp,
                                         color = if (isAmoled) Color.White else Color.Black
@@ -670,7 +670,7 @@ fun RoutesScreen(
                                         ) {
                                             Column(modifier = Modifier.padding(12.dp)) {
                                                 Text("Distancia", fontSize = 10.sp, color = Color.Gray)
-                                                Text(String.format("%.2f km", playbackState.distanceCoveredKm), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = accentColor)
+                                                Text(com.example.utils.GpxParser.formatDistance(playbackState.distanceCoveredKm), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = accentColor)
                                             }
                                         }
 
@@ -1185,7 +1185,7 @@ fun RouteManagementCard(
                 Column {
                     Text("DISTANCIA", fontSize = 9.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                     Text(
-                        String.format("%.2f km", route.totalDistanceKm),
+                        com.example.utils.GpxParser.formatDistance(route.totalDistanceKm),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = if (isAmoled) Color.White else Color.Black
