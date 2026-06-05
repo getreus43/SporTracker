@@ -1359,35 +1359,72 @@ fun RouteManagementCard(
                         modifier = Modifier.padding(start = 4.dp, end = 4.dp)
                     ) {
                         waypoints.forEach { wp ->
+                            var isWpExpanded by remember { mutableStateOf(false) }
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isAmoled) Color(0xFF252526) else Color(0xFFF2F2F7).copy(alpha = 0.5f)
                                 ),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isWpExpanded = !isWpExpanded }
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.PinDrop, contentDescription = null, tint = Color(0xFFFF9500), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            wp.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = if (isAmoled) Color.White else Color.Black
-                                        )
-                                    }
-                                    if (wp.description.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            wp.description,
-                                            fontSize = 11.sp,
-                                            color = Color.Gray
-                                        )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.PinDrop, contentDescription = null, tint = Color(0xFFFF9500), modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    wp.name,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = if (isAmoled) Color.White else Color.Black
+                                                )
+                                            }
+                                            if (wp.description.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    wp.description,
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                        }
+
+                                        if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.CameraAlt,
+                                                    contentDescription = "Fotos duales disponibles",
+                                                    tint = accentColor,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    if (isWpExpanded) "Ocultar" else "Ver fotos",
+                                                    fontSize = 10.sp,
+                                                    color = accentColor,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Icon(
+                                                    imageVector = if (isWpExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = null,
+                                                    tint = accentColor,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
 
-                                    if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                    if (isWpExpanded && (wp.frontPhotoPath != null || wp.backPhotoPath != null)) {
+                                        Spacer(modifier = Modifier.height(12.dp))
                                         
                                         // BeReal style dual photo layout
                                         var isSwapped by remember { mutableStateOf(false) }
