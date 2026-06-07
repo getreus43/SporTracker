@@ -770,6 +770,12 @@ class RouteViewModel(application: Application) : AndroidViewModel(application), 
         _recordingState.value = RecordingState()
     }
 
+    fun updateRoute(route: Route) {
+        viewModelScope.launch {
+            repository.updateRoute(route)
+        }
+    }
+
     // ==========================================
     // TEXT TO SPEECH CALLS
     // ==========================================

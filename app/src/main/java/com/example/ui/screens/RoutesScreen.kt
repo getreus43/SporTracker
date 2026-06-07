@@ -860,6 +860,7 @@ fun RoutesScreen(
                                 route = route,
                                 accentColor = accentColor,
                                 isAmoled = isAmoled,
+                                viewModel = viewModel,
                                 onPlayClick = { viewModel.startRoutePlayback(route) },
                                 onExportClick = { showExportDialog = route },
                                 onDeleteClick = { showDeleteConfirmDialog = route }
@@ -1174,16 +1175,38 @@ fun RoutesScreen(
     }
 }
 
+fun getPhotoUriOrUrl(path: String?): Any? {
+    if (path.isNullOrEmpty()) return null
+    if (path.startsWith("http")) return path
+    return when (path) {
+        "mock_calc_front" -> "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=60"
+        "mock_calc_back" -> "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop&q=60"
+        "mock_cola_front" -> "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&auto=format&fit=crop&q=60"
+        "mock_cola_back" -> "https://images.unsplash.com/photo-1527631746610-bca00a040d60?w=800&auto=format&fit=crop&q=60"
+        "mock_valde_front" -> "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&auto=format&fit=crop&q=60"
+        "mock_valde_back" -> "https://images.unsplash.com/photo-1501555088652-021faa106b9b?w=800&auto=format&fit=crop&q=60"
+        "mock_cristal_front" -> "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&auto=format&fit=crop&q=60"
+        "mock_cristal_back" -> "https://images.unsplash.com/photo-1478131143081-80f7f84ca84d?w=800&auto=format&fit=crop&q=60"
+        else -> {
+            val file = java.io.File(path)
+            if (file.exists()) file else null
+        }
+    }
+}
+
 @Composable
 fun RouteManagementCard(
     route: Route,
     accentColor: Color,
     isAmoled: Boolean,
+    viewModel: com.example.ui.viewmodel.RouteViewModel,
     onPlayClick: () -> Unit,
     onExportClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
     val context = LocalContext.current
+    var activeCameraForWaypointIndex by remember { mutableStateOf<Int?>(null) }
+
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
@@ -1358,8 +1381,10 @@ fun RouteManagementCard(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.padding(start = 4.dp, end = 4.dp)
                     ) {
-                        waypoints.forEach { wp ->
+                        waypoints.forEachIndexed { index, wp ->
                             var isWpExpanded by remember { mutableStateOf(false) }
+                            val hasPhotos = !wp.frontPhotoPath.isNullOrEmpty() || !wp.backPhotoPath.isNullOrEmpty()
+
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isAmoled) Color(0xFF252526) else Color(0xFFF2F2F7).copy(alpha = 0.5f)
@@ -1396,54 +1421,52 @@ fun RouteManagementCard(
                                             }
                                         }
 
-                                        if (wp.frontPhotoPath != null || wp.backPhotoPath != null) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.CameraAlt,
-                                                    contentDescription = "Fotos duales disponibles",
-                                                    tint = accentColor,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Text(
-                                                    if (isWpExpanded) "Ocultar" else "Ver fotos",
-                                                    fontSize = 10.sp,
-                                                    color = accentColor,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Icon(
-                                                    imageVector = if (isWpExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                                    contentDescription = null,
-                                                    tint = accentColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (hasPhotos) Icons.Default.CameraAlt else Icons.Default.AddAPhoto,
+                                                contentDescription = "Fotos duales",
+                                                tint = accentColor,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = if (hasPhotos) (if (isWpExpanded) "Ocultar" else "Ver fotos") else "Añadir fotos",
+                                                fontSize = 10.sp,
+                                                color = accentColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Icon(
+                                                imageVector = if (isWpExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                                contentDescription = null,
+                                                tint = accentColor,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                     }
 
-                                    if (isWpExpanded && (wp.frontPhotoPath != null || wp.backPhotoPath != null)) {
+                                    if (isWpExpanded) {
                                         Spacer(modifier = Modifier.height(12.dp))
                                         
-                                        // BeReal style dual photo layout
-                                        var isSwapped by remember { mutableStateOf(false) }
-                                        val mainPath = if (isSwapped) wp.backPhotoPath else wp.frontPhotoPath
-                                        val secPath = if (isSwapped) wp.frontPhotoPath else wp.backPhotoPath
+                                        if (hasPhotos) {
+                                            // BeReal style dual photo layout
+                                            var isSwapped by remember { mutableStateOf(false) }
+                                            val mainPath = if (isSwapped) wp.backPhotoPath else wp.frontPhotoPath
+                                            val secPath = if (isSwapped) wp.frontPhotoPath else wp.backPhotoPath
 
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(240.dp)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(Color(0xFF1E293B))
-                                        ) {
-                                            // 1. Draw Main Background Photo
-                                            if (mainPath != null) {
-                                                val mainFile = File(mainPath)
-                                                if (mainFile.exists() && !mainPath.startsWith("mock_")) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(240.dp)
+                                                    .clip(RoundedCornerShape(16.dp))
+                                                    .background(Color(0xFF1E293B))
+                                            ) {
+                                                // 1. Draw Main Background Photo
+                                                val mainModel = getPhotoUriOrUrl(mainPath)
+                                                if (mainModel != null) {
                                                     Image(
-                                                        painter = rememberAsyncImagePainter(mainFile),
+                                                        painter = rememberAsyncImagePainter(mainModel),
                                                         contentDescription = "Foto Principal",
                                                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                                         modifier = Modifier
@@ -1465,70 +1488,98 @@ fun RouteManagementCard(
                                                         }
                                                     }
                                                 }
-                                            }
 
-                                            // 2. Draw Overlap Floating Photo (Top Right)
-                                            if (secPath != null) {
+                                                // 2. Draw Overlap Floating Photo (Top Right)
+                                                val secModel = getPhotoUriOrUrl(secPath)
+                                                if (secModel != null) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopEnd)
+                                                            .padding(12.dp)
+                                                            .size(width = 80.dp, height = 110.dp)
+                                                            .shadow(8.dp, RoundedCornerShape(12.dp))
+                                                            .clip(RoundedCornerShape(12.dp))
+                                                            .border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                                                            .background(Color.DarkGray)
+                                                            .clickable { isSwapped = !isSwapped }
+                                                    ) {
+                                                        Image(
+                                                            painter = rememberAsyncImagePainter(secModel),
+                                                            contentDescription = "Foto Secundaria",
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+                                                }
+
+                                                // 3. Download composed BeReal image button
+                                                IconButton(
+                                                    onClick = {
+                                                        val savedUri = com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, wp.frontPhotoPath, wp.backPhotoPath)
+                                                        if (savedUri != null) {
+                                                            Toast.makeText(context, "¡Composición BeReal guardada en la galería!", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "No se pudo guardar la composición.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomEnd)
+                                                        .padding(12.dp)
+                                                        .size(40.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = "Descargar composición BeReal", tint = Color.White, modifier = Modifier.size(20.dp))
+                                                }
+
+                                                // Interaction Tip
                                                 Box(
                                                     modifier = Modifier
-                                                        .align(Alignment.TopEnd)
+                                                        .align(Alignment.BottomStart)
                                                         .padding(12.dp)
-                                                        .size(width = 80.dp, height = 110.dp)
-                                                        .shadow(8.dp, RoundedCornerShape(12.dp))
-                                                        .clip(RoundedCornerShape(12.dp))
-                                                        .border(2.dp, Color.White, RoundedCornerShape(12.dp))
-                                                        .background(Color.DarkGray)
-                                                        .clickable { isSwapped = !isSwapped }
+                                                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 6.dp, vertical = 3.dp)
                                                 ) {
-                                                     val secFile = File(secPath)
-                                                     if (secFile.exists() && !secPath.startsWith("mock_")) {
-                                                         Image(
-                                                             painter = rememberAsyncImagePainter(secFile),
-                                                             contentDescription = "Foto Secundaria",
-                                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                             modifier = Modifier.fillMaxSize()
-                                                         )
-                                                     } else {
-                                                         Box(
-                                                             modifier = Modifier
-                                                                 .fillMaxSize()
-                                                                 .background(Color(0xFF334155)),
-                                                             contentAlignment = Alignment.Center
-                                                         ) {
-                                                             Icon(Icons.Default.Portrait, contentDescription = null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
-                                                         }
-                                                     }
+                                                    Text("Toca para rotar", color = Color.White, fontSize = 9.sp)
                                                 }
                                             }
-
-                                            // 3. Download composed BeReal image button
-                                            IconButton(
-                                                onClick = {
-                                                    val savedUri = com.example.utils.GallerySaver.saveMergedBeRealToPublicGallery(context, wp.frontPhotoPath, wp.backPhotoPath)
-                                                    if (savedUri != null) {
-                                                        Toast.makeText(context, "¡Composición BeReal guardada en la galería!", Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        Toast.makeText(context, "No se pudo guardar la composición.", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
-                                                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomEnd)
-                                                    .padding(12.dp)
-                                                    .size(40.dp)
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = "Descargar composición BeReal", tint = Color.White, modifier = Modifier.size(20.dp))
-                                            }
-
-                                            // Interaction Tip
+                                        } else {
+                                            // Empty state with direct DualCamera call
                                             Box(
                                                 modifier = Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .padding(12.dp)
-                                                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        color = if (isAmoled) Color(0xFF1E293B) else Color(0xFFE2E8F0),
+                                                        shape = RoundedCornerShape(12.dp)
+                                                    )
+                                                    .clickable { activeCameraForWaypointIndex = index }
+                                                    .padding(24.dp),
+                                                contentAlignment = Alignment.Center
                                             ) {
-                                                Text("Toca para rotar", color = Color.White, fontSize = 9.sp)
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.AddAPhoto,
+                                                        contentDescription = null,
+                                                        tint = accentColor,
+                                                        modifier = Modifier.size(36.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.height(10.dp))
+                                                    Text(
+                                                        "No hay fotos duales en esta parada",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isAmoled) Color.White else Color.Black
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        "Toca aquí para capturar fotos duales BeReal ahora",
+                                                        fontSize = 11.sp,
+                                                        color = Color.Gray,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1575,6 +1626,36 @@ fun RouteManagementCard(
                     Text("COMENZAR", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
+        }
+    }
+
+    if (activeCameraForWaypointIndex != null) {
+        val wpIndex = activeCameraForWaypointIndex!!
+        val waypoints = remember(route) { route.getPointsOfInterest() }
+        if (wpIndex in waypoints.indices) {
+            val wp = waypoints[wpIndex]
+            val androidContext = LocalContext.current
+            DualCameraCapture(
+                onCaptured = { front, back ->
+                    val currentWps = route.getPointsOfInterest().toMutableList()
+                    if (wpIndex in currentWps.indices) {
+                        val oldWp = currentWps[wpIndex]
+                        val updatedWp = oldWp.copy(
+                            frontPhotoPath = front,
+                            backPhotoPath = back
+                        )
+                        currentWps[wpIndex] = updatedWp
+                        
+                        val updatedRoute = route.copy(
+                            pointsOfInterestJson = com.example.data.model.Route.waypointsToJson(currentWps)
+                        )
+                        viewModel.updateRoute(updatedRoute)
+                        android.widget.Toast.makeText(androidContext, "¡Fotos duales añadidas a ${oldWp.name}!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    activeCameraForWaypointIndex = null
+                },
+                onClose = { activeCameraForWaypointIndex = null }
+            )
         }
     }
 }
