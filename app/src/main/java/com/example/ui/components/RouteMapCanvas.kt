@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.request.ImageRequest
+import androidx.compose.ui.layout.onSizeChanged
 import com.example.data.model.RoutePoint
 import com.example.data.model.Waypoint
 import kotlin.math.*
@@ -117,6 +118,10 @@ fun RouteMapCanvas(
     // Zoom and Pan States
     var scale by remember { mutableFloatStateOf(1.6f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+
+    // Custom layout measurements for focus zooming
+    var widthPx by remember { mutableFloatStateOf(0f) }
+    var heightPx by remember { mutableFloatStateOf(0f) }
 
     // User orientation and centering lock states
     var isLockedToUser by remember { mutableStateOf(true) }
@@ -218,15 +223,34 @@ fun RouteMapCanvas(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
+            .onSizeChanged { size ->
+                widthPx = size.width.toFloat()
+                heightPx = size.height.toFloat()
+            }
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    if (pan.getDistanceSquared() > 0.1f) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    if (pan.getDistanceSquared() > 0.1f || abs(zoom - 1f) > 0.005f) {
                         isLockedToUser = false
                         isDirectionLocked = false
                     }
-                    scale = (scale * zoom).coerceIn(0.15f, 60.0f)
+                    val oldScale = scale
+                    val newScale = (scale * zoom).coerceIn(0.15f, 60.0f)
+
+                    val w = if (widthPx > 0f) widthPx else 1080f
+                    val h = if (heightPx > 0f) heightPx else 1920f
+                    val centerX = w / 2f
+                    val centerY = h / 2f
+
+                    // Focus point of zoom gesture relative to center of screen
+                    val focusX = centroid.x - centerX
+                    val focusY = centroid.y - centerY
+
+                    val nextOffsetX = focusX - (focusX - offset.x) * (newScale / oldScale)
+                    val nextOffsetY = focusY - (focusY - offset.y) * (newScale / oldScale)
+
+                    scale = newScale
                     if (!isLockedToUser) {
-                        offset += pan
+                        offset = Offset(nextOffsetX, nextOffsetY) + pan
                     }
                 }
             }
@@ -241,13 +265,15 @@ fun RouteMapCanvas(
             if (mapWidth <= 0 || mapHeight <= 0) 1f else min(mapWidth / xSpan, mapHeight / ySpan).toFloat()
         }
 
-        val userPoint = remember(userLatitude, userLongitude, points, currentPointIndex) {
+        val userPoint = remember(userLatitude, userLongitude, points, currentPointIndex, minLat, maxLat, minLon, maxLon) {
             if (userLatitude != null && userLongitude != null) {
                 RoutePoint(userLatitude, userLongitude, 0.0, 0L)
             } else if (currentPointIndex != null && currentPointIndex < points.size) {
                 points[currentPointIndex]
             } else if (points.isNotEmpty()) {
-                points.last()
+                val midLat = (minLat + maxLat) / 2.0
+                val midLon = (minLon + maxLon) / 2.0
+                RoutePoint(midLat, midLon, 0.0, 0L)
             } else {
                 RoutePoint(40.416775, -3.703790, 650.0, 0L)
             }
